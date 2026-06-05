@@ -34,7 +34,7 @@ const Navbar = () => {
                 ? 'text-amber-400'
                 : 'text-indigo-400'
             }`}>
-              {user.role}
+              {user.role} {user.domain ? `| ${user.domain}` : ''}
             </span>
           </div>
         </div>

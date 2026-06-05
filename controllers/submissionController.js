@@ -44,13 +44,26 @@ const getSubmissions = async (req, res) => {
 
   try {
     if (role === 'mentor' || role === 'admin') {
-      const query = `
-        SELECT s.*, u.name AS intern_name, t.title AS task_title
-        FROM submissions s
-        JOIN users u ON s.intern_id = u.id
-        JOIN tasks t ON s.task_id = t.id
-      `;
-      const [submissions] = await db.query(query);
+      let query;
+      let params = [];
+      if (role === 'mentor') {
+        query = `
+          SELECT s.*, u.name AS intern_name, t.title AS task_title
+          FROM submissions s
+          JOIN users u ON s.intern_id = u.id
+          JOIN tasks t ON s.task_id = t.id
+          WHERE u.domain = ?
+        `;
+        params.push(req.user.domain);
+      } else {
+        query = `
+          SELECT s.*, u.name AS intern_name, t.title AS task_title
+          FROM submissions s
+          JOIN users u ON s.intern_id = u.id
+          JOIN tasks t ON s.task_id = t.id
+        `;
+      }
+      const [submissions] = await db.query(query, params);
       return res.json({ submissions });
     } else if (role === 'intern') {
       const query = `
