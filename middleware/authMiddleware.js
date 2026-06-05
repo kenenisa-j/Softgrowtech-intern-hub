@@ -1,0 +1,44 @@
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
+
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    return res.status(401).json({ message: 'Access denied. No token provided.' });
+  }
+
+  // Expect Bearer <token>
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    return res.status(401).json({ message: 'Token format is invalid. Expected "Bearer <token>"' });
+  }
+
+  const token = parts[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_jwt_token_key_here');
+    req.user = decoded; // contains id, name, role
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Invalid or expired token.' });
+  }
+};
+
+const requireRole = (rolesArray) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Unauthorized. User context missing.' });
+    }
+    
+    if (!rolesArray.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Forbidden. Access denied for this role.' });
+    }
+    
+    next();
+  };
+};
+
+module.exports = {
+  verifyToken,
+  requireRole
+};
