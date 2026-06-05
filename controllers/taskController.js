@@ -9,10 +9,11 @@ const createTask = async (req, res) => {
 
   try {
     const createdBy = req.user.id;
+    const domain = req.user.domain || 'Full-Stack';
 
     const [result] = await db.query(
-      'INSERT INTO tasks (title, description, deadline, created_by) VALUES (?, ?, ?, ?)',
-      [title, description || null, deadline || null, createdBy]
+      'INSERT INTO tasks (title, description, deadline, created_by, domain) VALUES (?, ?, ?, ?, ?)',
+      [title, description || null, deadline || null, createdBy, domain]
     );
 
     return res.status(201).json({
@@ -22,7 +23,8 @@ const createTask = async (req, res) => {
         title,
         description,
         deadline,
-        created_by: createdBy
+        created_by: createdBy,
+        domain
       }
     });
   } catch (error) {
@@ -33,7 +35,8 @@ const createTask = async (req, res) => {
 
 const getAllTasks = async (req, res) => {
   try {
-    const [tasks] = await db.query('SELECT * FROM tasks');
+    const domain = req.user.domain || 'Full-Stack';
+    const [tasks] = await db.query('SELECT * FROM tasks WHERE domain = ?', [domain]);
     return res.json({ tasks });
   } catch (error) {
     console.error('Get all tasks error:', error);

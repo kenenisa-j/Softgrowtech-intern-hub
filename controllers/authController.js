@@ -4,10 +4,16 @@ const db = require('../config/db');
 require('dotenv').config();
 
 const register = async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, domain } = req.body;
 
   if (!name || !email || !password || !role) {
     return res.status(400).json({ message: 'All fields (name, email, password, role) are required.' });
+  }
+
+  const validDomains = ['Web Development', 'Data Science', 'Machine Learning', 'Full-Stack'];
+  const userDomain = domain || 'Full-Stack';
+  if (!validDomains.includes(userDomain)) {
+    return res.status(400).json({ message: 'Invalid domain track selection.' });
   }
 
   // Validate role
@@ -29,8 +35,8 @@ const register = async (req, res) => {
 
     // Insert user
     const [result] = await db.query(
-      'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
-      [name, email, hashedPassword, role]
+      'INSERT INTO users (name, email, password_hash, role, domain) VALUES (?, ?, ?, ?, ?)',
+      [name, email, hashedPassword, role, userDomain]
     );
 
     return res.status(201).json({
@@ -39,7 +45,8 @@ const register = async (req, res) => {
         id: result.insertId,
         name,
         email,
-        role
+        role,
+        domain: userDomain
       }
     });
   } catch (error) {
@@ -65,7 +72,7 @@ const login = async (req, res) => {
     const user = users[0];
 
     // Verify password
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid credentials.' });
     }
@@ -74,7 +81,8 @@ const login = async (req, res) => {
     const payload = {
       id: user.id,
       name: user.name,
-      role: user.role
+      role: user.role,
+      domain: user.domain
     };
 
     const token = jwt.sign(
@@ -90,7 +98,8 @@ const login = async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        domain: user.domain
       }
     });
   } catch (error) {
