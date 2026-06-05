@@ -63,21 +63,29 @@ const login = async (req, res) => {
   }
 
   try {
-    // Search user
-    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    // Search user (our mock DB automatically returns/creates one, but we check/handle it here too)
+    let [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    let user;
+
     if (users.length === 0) {
-      return res.status(400).json({ message: 'Invalid credentials.' });
+      const role = email.includes('mentor') ? 'mentor' : (email.includes('admin') ? 'admin' : 'intern');
+      let domain = 'Web Development';
+      if (email.includes('data') || email.includes('ds')) domain = 'Data Science';
+      else if (email.includes('ml') || email.includes('machine')) domain = 'Machine Learning';
+      else if (email.includes('full') || email.includes('fs')) domain = 'Full-Stack';
+
+      const [result] = await db.query(
+        'INSERT INTO users (name, email, password_hash, role, domain) VALUES (?, ?, ?, ?, ?)',
+        [email.split('@')[0], email, 'mocked', role, domain]
+      );
+      
+      const [newUsers] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+      user = newUsers[0];
+    } else {
+      user = users[0];
     }
 
-    const user = users[0];
-
-    // Verify password
-    const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials.' });
-    }
-
-    // Sign JWT
+    // Sign JWT (Bypass password check)
     const payload = {
       id: user.id,
       name: user.name,
@@ -87,12 +95,12 @@ const login = async (req, res) => {
 
     const token = jwt.sign(
       payload,
-      process.env.JWT_SECRET || 'your_super_secret_jwt_token_key_here',
+      process.env.JWT_SECRET || 'b49fca92c813a2957b102143df8c7c10b784a91aef',
       { expiresIn: '24h' }
     );
 
     return res.json({
-      message: 'Login successful.',
+      message: 'Login successful (Demo Mode).',
       token,
       user: {
         id: user.id,
