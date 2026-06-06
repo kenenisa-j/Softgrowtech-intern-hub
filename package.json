@@ -2,10 +2,7 @@
   "name": "internship-management-system",
   "private": true,
   "version": "1.0.0",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
