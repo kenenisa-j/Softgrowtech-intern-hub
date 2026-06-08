@@ -10,5 +10,10 @@
   },
   "devDependencies": {
     "turbo": "^2.0.0"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.3"
   }
 }

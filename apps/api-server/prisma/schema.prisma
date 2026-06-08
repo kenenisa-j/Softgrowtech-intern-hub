@@ -21,6 +21,10 @@ model Organization {
   roles            Role[]
   tenantSettings   TenantSettings?
   invitations      Invitation[]
+  // New Phase 2 relations
+  attendanceSessions AttendanceSession[]
+  assessments      Assessment[]
+  notifications    Notification[]
 
   // Optional subscription plan (e.g., Starter, Pro, Enterprise)
   plan             String?  @default("Starter")
@@ -29,6 +33,7 @@ model Organization {
 }
 
 model User {
+  // Existing fields
   id            String   @id @default(uuid()) @db.VarChar(36)
   tenant_id     String   @db.VarChar(36)
   email         String   @db.VarChar(255)
@@ -37,6 +42,11 @@ model User {
 
   organization  Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   roles         UserRole[]
+
+  // New reverse relations for Phase 2 models
+  attendanceRecords      AttendanceRecord[]
+  assessmentAttempts    AssessmentAttempt[]
+  notificationPreferences NotificationPreference[]
 
   // Unique constraint ensuring email is unique per organization (tenant)
   @@unique([tenant_id, email])
@@ -127,4 +137,91 @@ model Invitation {
 
   @@index([tenant_id])
   @@map("invitations")
+}
+// Phase 2 models
+
+model AttendanceSession {
+  id String @id @default(uuid()) @db.VarChar(36)
+  tenant_id String @db.VarChar(36)
+  title String @db.VarChar(255)
+  date DateTime
+  host_ip String? @db.VarChar(45)
+  open_time DateTime
+  close_time DateTime?
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  attendanceRecords AttendanceRecord[]
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id String @id @default(uuid()) @db.VarChar(36)
+  session_id String @db.VarChar(36)
+  user_id String @db.VarChar(36)
+  attended_at DateTime @default(now())
+  session AttendanceSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  @@unique([session_id, user_id])
+  @@map("attendance_records")
+}
+
+model Assessment {
+  id String @id @default(uuid()) @db.VarChar(36)
+  tenant_id String @db.VarChar(36)
+  title String @db.VarChar(255)
+  total_points Int
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  questions Question[]
+  attempts AssessmentAttempt[]
+  @@map("assessments")
+}
+
+model Question {
+  id String @id @default(uuid()) @db.VarChar(36)
+  assessment_id String @db.VarChar(36)
+  text String @db.Text
+  point_value Int @default(1)
+  assessment Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  answerOptions AnswerOption[]
+  @@map("questions")
+}
+
+model AnswerOption {
+  id String @id @default(uuid()) @db.VarChar(36)
+  question_id String @db.VarChar(36)
+  text String @db.Text
+  is_correct Boolean @default(false)
+  question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  @@map("answer_options")
+}
+
+model AssessmentAttempt {
+  id String @id @default(uuid()) @db.VarChar(36)
+  tenant_id String @db.VarChar(36)
+  assessment_id String @db.VarChar(36)
+  user_id String? @db.VarChar(36)
+  total_score Int
+  is_passed Boolean
+  createdAt DateTime @default(now())
+  assessment Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [user_id], references: [id])
+  @@map("assessment_attempts")
+}
+
+model Notification {
+  id String @id @default(uuid()) @db.VarChar(36)
+  tenant_id String @db.VarChar(36)
+  type String @db.VarChar(50)
+  payload Json
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id String @id @default(uuid()) @db.VarChar(36)
+  user_id String @db.VarChar(36)
+  channel String @db.VarChar(50)
+  enabled Boolean @default(true)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  @@map("notification_preferences")
 }

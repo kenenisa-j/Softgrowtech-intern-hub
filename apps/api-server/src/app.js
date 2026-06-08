@@ -48,6 +48,12 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/submissions', submissionRoutes);
 
+// New Phase 2 routes
+const assessmentRoutes = require('../routes/assessmentRoutes');
+const exportRoutes = require('../routes/exportRoutes');
+
+app.use('/api/v1/assessments', assessmentRoutes);
+app.use('/api/v1/export', exportRoutes);
 // Root endpoint status check
 app.get('/', (req, res) => {
   res.json({ message: 'Internship Management System API is running successfully.' });
