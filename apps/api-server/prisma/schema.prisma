@@ -1,0 +1,95 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  name      String   @db.VarChar(255)
+  subdomain String   @db.VarChar(255)
+  createdAt DateTime @default(now())
+  
+  users     User[]
+  roles     Role[]
+
+  @@map("organizations")
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.VarChar(36)
+  tenant_id     String     @db.VarChar(36)
+  email         String     @db.VarChar(255)
+  password_hash String     @db.VarChar(255)
+  createdAt     DateTime   @default(now())
+  
+  organization  Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  roles         UserRole[]
+
+  // Unique constraint ensuring email is unique per organization (tenant)
+  @@unique([tenant_id, email])
+  // Index for optimizing queries targeting users within a tenant
+  @@index([tenant_id])
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @default(uuid()) @db.VarChar(36)
+  tenant_id       String           @db.VarChar(36)
+  name            String           @db.VarChar(100)
+  createdAt       DateTime         @default(now())
+
+  organization    Organization     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  permissions     RolePermission[]
+  users           UserRole[]
+
+  // Unique constraint ensuring role names are unique within a tenant
+  @@unique([tenant_id, name])
+  // Index for role lookup under a tenant
+  @@index([tenant_id])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.VarChar(36)
+  name        String           @unique @db.VarChar(100)
+  description String?          @db.VarChar(255)
+
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  role_id       String @db.VarChar(36)
+  permission_id String @db.VarChar(36)
+
+  role          Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+  // Indexes for relational joins and reverse lookups
+  @@index([role_id])
+  @@index([permission_id])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  user_id String @db.VarChar(36)
+  role_id String @db.VarChar(36)
+
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role    Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, role_id])
+  // Indexes for relational joins and reverse lookups
+  @@index([user_id])
+  @@index([role_id])
+  @@map("user_roles")
+}
