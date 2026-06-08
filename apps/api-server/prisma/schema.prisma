@@ -13,22 +13,28 @@ datasource db {
 model Organization {
   id        String   @id @default(uuid()) @db.VarChar(36)
   name      String   @db.VarChar(255)
-  subdomain String   @db.VarChar(255)
+  subdomain String   @unique @db.VarChar(255)
   createdAt DateTime @default(now())
-  
-  users     User[]
-  roles     Role[]
+
+  // Relations
+  users            User[]
+  roles            Role[]
+  tenantSettings   TenantSettings?
+  invitations      Invitation[]
+
+  // Optional subscription plan (e.g., Starter, Pro, Enterprise)
+  plan             String?  @default("Starter")
 
   @@map("organizations")
 }
 
 model User {
-  id            String     @id @default(uuid()) @db.VarChar(36)
-  tenant_id     String     @db.VarChar(36)
-  email         String     @db.VarChar(255)
-  password_hash String     @db.VarChar(255)
-  createdAt     DateTime   @default(now())
-  
+  id            String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id     String   @db.VarChar(36)
+  email         String   @db.VarChar(255)
+  password_hash String   @db.VarChar(255)
+  createdAt     DateTime @default(now())
+
   organization  Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   roles         UserRole[]
 
@@ -40,15 +46,15 @@ model User {
 }
 
 model Role {
-  id              String           @id @default(uuid()) @db.VarChar(36)
-  tenant_id       String           @db.VarChar(36)
-  name            String           @db.VarChar(100)
-  createdAt       DateTime         @default(now())
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id String   @db.VarChar(36)
+  name      String   @db.VarChar(100)
+  createdAt DateTime @default(now())
 
-  organization    Organization     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  permissions     RolePermission[]
-  users           UserRole[]
-
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  users        UserRole[]
+  invitations  Invitation[]
   // Unique constraint ensuring role names are unique within a tenant
   @@unique([tenant_id, name])
   // Index for role lookup under a tenant
@@ -57,11 +63,11 @@ model Role {
 }
 
 model Permission {
-  id          String           @id @default(uuid()) @db.VarChar(36)
-  name        String           @unique @db.VarChar(100)
-  description String?          @db.VarChar(255)
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(255)
 
-  roles       RolePermission[]
+  roles RolePermission[]
 
   @@map("permissions")
 }
@@ -70,8 +76,8 @@ model RolePermission {
   role_id       String @db.VarChar(36)
   permission_id String @db.VarChar(36)
 
-  role          Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
-  permission    Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
 
   @@id([role_id, permission_id])
   // Indexes for relational joins and reverse lookups
@@ -84,12 +90,41 @@ model UserRole {
   user_id String @db.VarChar(36)
   role_id String @db.VarChar(36)
 
-  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  role    Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
 
   @@id([user_id, role_id])
   // Indexes for relational joins and reverse lookups
   @@index([user_id])
   @@index([role_id])
   @@map("user_roles")
+}
+
+model TenantSettings {
+  id          String @id @default(uuid()) @db.VarChar(36)
+  tenant_id   String @unique @db.VarChar(36)
+  logo_url    String? @db.VarChar(255)
+  brand_color_hex String @default("#000000") @db.VarChar(7)
+  timezone    String @default("UTC") @db.VarChar(50)
+
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@map("tenant_settings")
+}
+
+model Invitation {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id   String   @db.VarChar(36)
+  email       String   @db.VarChar(255)
+  role_id     String   @db.VarChar(36)
+  token       String   @unique @db.VarChar(255)
+  expires_at  DateTime
+  is_accepted Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  role        Role        @relation(fields: [role_id], references: [id])
+
+  @@index([tenant_id])
+  @@map("invitations")
 }
