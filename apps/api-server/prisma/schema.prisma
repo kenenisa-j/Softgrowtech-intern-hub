@@ -25,6 +25,8 @@ model Organization {
   attendanceSessions AttendanceSession[]
   assessments      Assessment[]
   notifications    Notification[]
+  aiUsageLedgers   AIUsageLedger[]
+  tenantCredits    TenantCredits?
 
   // Optional subscription plan (e.g., Starter, Pro, Enterprise)
   plan             String?  @default("Starter")
@@ -224,4 +226,32 @@ model NotificationPreference {
   enabled Boolean @default(true)
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@map("notification_preferences")
+}
+
+model AIUsageLedger {
+  id                String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id         String   @db.VarChar(36)
+  feature_key       String   @db.VarChar(100)
+  prompt_tokens     Int
+  completion_tokens Int
+  calculated_cost   Decimal   @db.Decimal(10,4)
+  created_at        DateTime @default(now())
+
+  tenant Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@map("ai_usage_ledger")
+}
+
+model TenantCredits {
+  id                  String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id           String   @unique @db.VarChar(36)
+  monthly_credit_limit Decimal   @default(50.00) @db.Decimal(10,2)
+  credits_consumed    Decimal   @default(0.00) @db.Decimal(10,2)
+  reset_date          DateTime @default(now())
+
+  tenant Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@map("tenant_credits")
 }
