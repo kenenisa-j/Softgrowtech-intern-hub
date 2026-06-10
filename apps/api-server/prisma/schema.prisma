@@ -27,6 +27,8 @@ model Organization {
   notifications    Notification[]
   aiUsageLedgers   AIUsageLedger[]
   tenantCredits    TenantCredits?
+  tenantFeatures   TenantFeature[]
+  tasks            Task[]
 
   // Optional subscription plan (e.g., Starter, Pro, Enterprise)
   plan             String?  @default("Starter")
@@ -38,9 +40,13 @@ model User {
   // Existing fields
   id            String   @id @default(uuid()) @db.VarChar(36)
   tenant_id     String   @db.VarChar(36)
+  name          String   @db.VarChar(255) @default("")
   email         String   @db.VarChar(255)
   password_hash String   @db.VarChar(255)
+  role          String   @db.VarChar(50) @default("intern")
+  domain        String   @db.VarChar(100) @default("Full-Stack")
   createdAt     DateTime @default(now())
+  is_active     Boolean  @default(true)
 
   organization  Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   roles         UserRole[]
@@ -254,4 +260,65 @@ model TenantCredits {
 
   @@index([tenant_id])
   @@map("tenant_credits")
+}
+
+model TenantFeature {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id   String   @db.VarChar(36)
+  feature_key String   @db.VarChar(100)
+  is_enabled  Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, feature_key])
+  @@index([tenant_id])
+  @@map("tenant_features")
+}
+
+model Task {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id   String   @db.VarChar(36)
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  deadline    DateTime?
+  domain      String   @db.VarChar(100) @default("Full-Stack")
+  created_by  String   @db.VarChar(36)
+  created_at  DateTime @default(now())
+
+  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  submissions  Submission[]
+
+  @@index([tenant_id])
+  @@map("tasks")
+}
+
+model Submission {
+  id              String    @id @default(uuid()) @db.VarChar(36)
+  task_id         String    @db.VarChar(36)
+  intern_id       String    @db.VarChar(36)
+  submission_text String?   @db.Text
+  file_path       String?   @db.VarChar(255)
+  github_link     String?   @db.VarChar(255)
+  status          String    @db.VarChar(50) @default("pending")
+  grade           String?   @db.VarChar(50)
+  feedback        String?   @db.Text
+  submitted_at    DateTime  @default(now())
+  graded_at       DateTime?
+  score           Int?
+
+  task Task @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id])
+  @@map("submissions")
+}
+
+model Certificate {
+  id           String   @id @default(uuid()) @db.VarChar(36)
+  intern_id    String   @unique @db.VarChar(36)
+  url          String   @db.VarChar(255)
+  generated_at DateTime @default(now())
+
+  @@map("certificates")
 }
