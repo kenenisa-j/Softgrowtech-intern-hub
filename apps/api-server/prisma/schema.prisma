@@ -33,6 +33,10 @@ model Organization {
   // Optional subscription plan (e.g., Starter, Pro, Enterprise)
   plan             String?  @default("Starter")
   status           String   @default("PENDING_APPROVAL") @db.VarChar(50)
+  isBillingActive  Boolean  @default(false)
+  stripeCustomerId String?  @db.VarChar(255)
+  stripeSubscriptionId String? @db.VarChar(255)
+  aiCreditsBalance Int      @default(0)
 
   @@map("organizations")
 }
@@ -322,4 +326,11 @@ model Certificate {
   generated_at DateTime @default(now())
 
   @@map("certificates")
+}
+
+model ProcessedEvent {
+  id          String   @id @db.VarChar(255)
+  processedAt DateTime @default(now())
+
+  @@map("processed_events")
 }

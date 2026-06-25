@@ -33,7 +33,13 @@ if (sentryDsn) {
 
 // Global Core Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf, encoding) => {
+    if (req.originalUrl && req.originalUrl.includes('/api/v1/billing/webhook')) {
+      req.rawBody = buf;
+    }
+  }
+}));
 
 // Multi-tenant context resolver middleware
 const tenantResolver = require('./middlewares/tenantResolver');
@@ -48,6 +54,7 @@ const taskRoutes = require('../routes/taskRoutes');
 const submissionRoutes = require('../routes/submissionRoutes');
 const organizationRoutes = require('../routes/organizationRoutes');
 const superadminRoutes = require('../routes/superadminRoutes');
+const billingRoutes = require('../routes/billingRoutes');
 
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
@@ -55,6 +62,7 @@ app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/submissions', submissionRoutes);
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/superadmin', superadminRoutes);
+app.use('/api/v1/billing', billingRoutes);
 
 const assessmentRoutes = require('./routes/assessmentRoutes');
 const exportRoutes = require('./routes/exportRoutes');
