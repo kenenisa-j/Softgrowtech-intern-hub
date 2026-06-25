@@ -82,6 +82,40 @@ async function tenantResolver(req, res, next) {
       }
     }
 
+    // Read JWT if present in Authorization header to check if user is a SUPERADMIN
+    let isSuperadmin = false;
+    const authHeader = req.headers['authorization'];
+    if (authHeader) {
+      const parts = authHeader.split(' ');
+      if (parts.length === 2 && parts[0] === 'Bearer') {
+        const token = parts[1];
+        try {
+          const jwt = require('jsonwebtoken');
+          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'b49fca92c813a2957b102143df8c7c10b784a91aef');
+          if (decoded && decoded.role === 'superadmin') {
+            isSuperadmin = true;
+          }
+        } catch (err) {
+          // Token decode errors ignored here; authenticating middleware will handle invalid signatures downstream
+        }
+      }
+    }
+
+    // Global Tenant Lock: Block requests if organization status is PENDING_APPROVAL or SUSPENDED (unless caller is SUPERADMIN)
+    if (organization.status === 'PENDING_APPROVAL' || organization.status === 'SUSPENDED') {
+      if (!isSuperadmin) {
+        if (organization.status === 'PENDING_APPROVAL') {
+          return res.status(403).json({
+            message: 'Forbidden. This workspace is currently awaiting administrative approval.'
+          });
+        } else {
+          return res.status(402).json({
+            message: 'Payment Required. This workspace has been suspended.'
+          });
+        }
+      }
+    }
+
     // Attach useful tenant data to the request for downstream handlers
     req.tenantId = organization.id;
     req.tenantSettings = organization.tenantSettings || null;

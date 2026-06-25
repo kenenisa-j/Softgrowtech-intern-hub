@@ -32,6 +32,7 @@ model Organization {
 
   // Optional subscription plan (e.g., Starter, Pro, Enterprise)
   plan             String?  @default("Starter")
+  status           String   @default("PENDING_APPROVAL") @db.VarChar(50)
 
   @@map("organizations")
 }
