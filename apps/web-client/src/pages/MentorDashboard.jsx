@@ -364,13 +364,14 @@ const MentorDashboard = () => {
                                   {new Date(sub.submitted_at).toLocaleString()}
                                 </td>
                                 <td className="px-6 py-4">
-                                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
-                                    sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                                    sub.status === 'needs_revision' ? 'bg-red-500/10 text-red-400' :
-                                    'bg-amber-500/10 text-amber-400'
-                                  }`}>
-                                    {sub.status.replace('_', ' ')}
-                                  </span>
+                                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                                     sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
+                                     sub.status === 'needs_revision' ? 'bg-red-500/10 text-red-400' :
+                                     sub.status === 'reviewed' ? 'bg-indigo-500/10 text-indigo-400' :
+                                     'bg-amber-500/10 text-amber-400'
+                                   }`}>
+                                     {sub.status === 'reviewed' ? 'AI Reviewed' : sub.status.replace('_', ' ')}
+                                   </span>
                                 </td>
                                 <td className="px-6 py-4 font-mono font-bold text-slate-200">{sub.grade || '—'}</td>
                                 <td className="px-6 py-4 text-right">
@@ -429,6 +430,35 @@ const MentorDashboard = () => {
                     </div>
                   )}
                 </div>
+
+                {activeGradingSub.status === 'reviewed' && (
+                  <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-2">
+                    <span className="text-[11px] uppercase font-bold text-indigo-400 block">
+                      🤖 AI Auto-Review Suggestion:
+                    </span>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-300">Suggested Score:</span>
+                      <span className="text-indigo-300 font-bold bg-indigo-500/10 px-2 py-0.5 rounded">
+                        {activeGradingSub.score !== null ? `${activeGradingSub.score}/100` : 'No score'}
+                      </span>
+                    </div>
+                    {activeGradingSub.feedback && (
+                      <p className="text-xs text-indigo-200/90 italic">
+                        "{activeGradingSub.feedback}"
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGradeValue(`A (${activeGradingSub.score}/100)`)
+                        setGradeFeedback(activeGradingSub.feedback || '')
+                      }}
+                      className="w-full mt-2 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:text-white rounded-lg text-xs font-medium transition-all cursor-pointer"
+                    >
+                      Use AI Suggestion
+                    </button>
+                  </div>
+                )}
 
                 {gradeError && (
                   <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl">

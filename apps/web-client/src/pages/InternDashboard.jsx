@@ -159,19 +159,37 @@ const InternDashboard = () => {
                               <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                 sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
                                 sub.status === 'needs_revision' ? 'bg-red-500/10 text-red-400' :
+                                sub.status === 'reviewed' ? 'bg-indigo-500/10 text-indigo-400' :
                                 'bg-amber-500/10 text-amber-400'
                               }`}>
-                                {sub.status.replace('_', ' ')}
+                                {sub.status === 'reviewed' ? 'AI Reviewed' : sub.status.replace('_', ' ')}
                               </span>
                             </div>
                             <p className="text-xs text-slate-400 line-clamp-2">{sub.submission_text}</p>
-                            {sub.grade && (
-                              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs mt-2">
-                                <span className="text-slate-400">Grade: <strong className="text-slate-200">{sub.grade}</strong></span>
+                            
+                            {(sub.grade || sub.score !== null || sub.feedback) && (
+                              <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-800/80 text-xs mt-2">
+                                {sub.status === 'reviewed' && (
+                                  <div className="flex justify-between items-center bg-indigo-950/20 p-2 rounded-lg border border-indigo-500/20 mb-1">
+                                    <span className="text-indigo-400 font-semibold flex items-center gap-1">
+                                      🤖 AI Auto-Review:
+                                    </span>
+                                    {sub.score !== null && (
+                                      <span className="text-indigo-300 font-bold bg-indigo-500/10 px-2 py-0.5 rounded text-[10px]">
+                                        Suggested Score: {sub.score}/100
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                                 {sub.feedback && (
-                                  <span className="text-slate-400 italic block text-right max-w-md truncate">
+                                  <p className="text-slate-300 italic pl-1">
                                     "{sub.feedback}"
-                                  </span>
+                                  </p>
+                                )}
+                                {sub.grade && (
+                                  <div className="flex justify-between items-center text-slate-400 mt-1 pt-1 border-t border-slate-800/40">
+                                    <span>Final Grade: <strong className="text-slate-200">{sub.grade}</strong></span>
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -207,9 +225,10 @@ const InternDashboard = () => {
                                   <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                                     sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
                                     sub.status === 'needs_revision' ? 'bg-red-500/10 text-red-400' :
+                                    sub.status === 'reviewed' ? 'bg-indigo-500/10 text-indigo-400' :
                                     'bg-amber-500/10 text-amber-400'
                                   }`}>
-                                    {sub.status.replace('_', ' ')}
+                                    {sub.status === 'reviewed' ? 'AI Reviewed' : sub.status.replace('_', ' ')}
                                   </span>
                                 )}
                               </div>
@@ -233,10 +252,15 @@ const InternDashboard = () => {
                                   <span>{sub ? 'Resubmit Work' : 'Submit Work'}</span>
                                 </button>
                               ) : (
-                                <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1">
+                                <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1.5">
                                   <div className="flex justify-between items-center text-xs">
                                     <span className="text-slate-500">Submitted Work:</span>
                                     {sub.grade && <span className="text-slate-300 font-bold">Grade: {sub.grade}</span>}
+                                    {sub.status === 'reviewed' && sub.score !== null && (
+                                      <span className="text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded text-[10px]">
+                                        AI Suggested: {sub.score}/100
+                                      </span>
+                                    )}
                                   </div>
                                   <p className="text-xs text-slate-400 italic">"{sub.feedback || 'Awaiting mentor evaluation'}"</p>
                                 </div>
