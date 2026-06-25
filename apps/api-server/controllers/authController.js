@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../src/prisma/client');
 
 const register = async (req, res) => {
-  const { name, email, password, role, domain } = req.body;
+  const { name, email, password, role, domain, tenantId: bodyTenantId } = req.body;
 
   if (!name || !email || !password || !role) {
     return res.status(400).json({ message: 'All fields (name, email, password, role) are required.' });
@@ -13,23 +13,23 @@ const register = async (req, res) => {
   const roleLower = role.toLowerCase();
 
   try {
-    // Check if user already exists
+    // Get tenant ID from request (resolved by tenantResolver middleware or provided in body)
+    const tenantId = bodyTenantId || req.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ message: 'Tenant context is missing.' });
+    }
+
+    // Check if user already exists in this tenant
     const existingUser = await prisma.user.findFirst({
-      where: { email }
+      where: { email, tenant_id: tenantId }
     });
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email.' });
+      return res.status(400).json({ message: 'User already exists with this email in the selected organization.' });
     }
 
     // Hash the password using bcrypt
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-
-    // Get tenant ID from request (resolved by tenantResolver middleware)
-    const tenantId = req.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ message: 'Tenant context is missing.' });
-    }
 
     // Insert user into the users table using Prisma
     const createdUser = await prisma.user.create({
@@ -43,12 +43,19 @@ const register = async (req, res) => {
       }
     });
 
+    const org = await prisma.organization.findUnique({
+      where: { id: tenantId }
+    });
+    const tenantName = org ? org.name : 'Unknown Organization';
+
     const user = {
       id: createdUser.id,
       name: createdUser.name,
       email: createdUser.email,
       role: createdUser.role,
-      domain: createdUser.domain
+      domain: createdUser.domain,
+      tenant_id: createdUser.tenant_id,
+      tenant_name: tenantName
     };
 
     // Generate production JWT token
@@ -70,16 +77,21 @@ const register = async (req, res) => {
 };
 
 const login = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, tenantId: bodyTenantId } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required.' });
   }
 
   try {
-    // Find user by email
+    const loginTenantId = bodyTenantId || req.tenantId;
+    if (!loginTenantId) {
+      return res.status(400).json({ message: 'Tenant context is missing.' });
+    }
+
+    // Find user by email and tenant_id
     const dbUser = await prisma.user.findFirst({
-      where: { email }
+      where: { email, tenant_id: loginTenantId }
     });
     if (!dbUser) {
       return res.status(401).json({ message: 'Invalid email or password.' });
@@ -91,12 +103,19 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
+    const org = await prisma.organization.findUnique({
+      where: { id: dbUser.tenant_id }
+    });
+    const tenantName = org ? org.name : 'Unknown Organization';
+
     const payload = {
       id: dbUser.id,
       name: dbUser.name,
       email: dbUser.email,
       role: dbUser.role,
-      domain: dbUser.domain
+      domain: dbUser.domain,
+      tenant_id: dbUser.tenant_id,
+      tenant_name: tenantName
     };
 
     // Generate production JWT token

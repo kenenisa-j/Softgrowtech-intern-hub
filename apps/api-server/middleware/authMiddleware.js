@@ -16,8 +16,11 @@ const verifyToken = (req, res, next) => {
   const token = parts[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_jwt_token_key_here');
-    req.user = decoded; // contains id, name, role
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'b49fca92c813a2957b102143df8c7c10b784a91aef');
+    req.user = decoded; // contains id, name, role, domain, tenant_id, tenant_name
+    if (decoded.tenant_id) {
+      req.tenantId = decoded.tenant_id;
+    }
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Invalid or expired token.' });

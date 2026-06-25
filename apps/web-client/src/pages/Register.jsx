@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { User, Mail, Lock, Briefcase, ArrowRight, GraduationCap } from 'lucide-react'
+import { User, Mail, Lock, Briefcase, ArrowRight, GraduationCap, Building, Globe } from 'lucide-react'
 
 const Register = () => {
   const navigate = useNavigate()
@@ -10,8 +10,34 @@ const Register = () => {
   const [password, setPassword] = useState('')
   const [role, setRole] = useState('intern')
   const [domain, setDomain] = useState('Full-Stack')
+  const [organizations, setOrganizations] = useState([])
+  const [selectedOrgId, setSelectedOrgId] = useState('')
+  const [newOrgName, setNewOrgName] = useState('')
+  const [newOrgSubdomain, setNewOrgSubdomain] = useState('')
+  const [loadingOrgs, setLoadingOrgs] = useState(true)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    const fetchOrgs = async () => {
+      try {
+        const response = await axios.get('/organizations')
+        const orgs = response.data.organizations || []
+        setOrganizations(orgs)
+        if (orgs.length > 0) {
+          setSelectedOrgId(orgs[0].id)
+        } else {
+          setSelectedOrgId('new')
+        }
+      } catch (err) {
+        console.error('Error fetching organizations:', err)
+        setSelectedOrgId('new')
+      } finally {
+        setLoadingOrgs(false)
+      }
+    }
+    fetchOrgs()
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -19,14 +45,36 @@ const Register = () => {
     setIsSubmitting(true)
 
     try {
-      await axios.post('/auth/register', { name, email, password, role, domain })
+      let finalTenantId = selectedOrgId
+
+      if (selectedOrgId === 'new') {
+        if (!newOrgName.trim() || !newOrgSubdomain.trim()) {
+          throw new Error('Organization name and subdomain are required.')
+        }
+        // Create organization first
+        const orgRes = await axios.post('/organizations', {
+          name: newOrgName,
+          subdomain: newOrgSubdomain
+        })
+        finalTenantId = orgRes.data.organization.id
+      }
+
+      await axios.post('/auth/register', {
+        name,
+        email,
+        password,
+        role,
+        domain,
+        tenantId: finalTenantId
+      })
+
       navigate('/login', {
         state: { successMsg: 'Registration successful! You can now log in.' },
       })
     } catch (err) {
       console.error(err)
       setError(
-        err.response?.data?.message || 'Registration failed. Please try again.'
+        err.response?.data?.message || err.message || 'Registration failed. Please try again.'
       )
     } finally {
       setIsSubmitting(false)
@@ -34,12 +82,12 @@ const Register = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4 py-12 relative overflow-hidden">
       {/* Background Ambient Blur */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -z-10"></div>
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl -z-10"></div>
 
-      <div className="glass-panel max-w-md w-full p-8 rounded-2xl relative">
+      <div className="glass-panel max-w-md w-full p-8 rounded-2xl relative my-8">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex w-12 h-12 rounded-xl bg-indigo-600 items-center justify-center text-white mb-4 shadow-lg shadow-indigo-600/30">
@@ -153,10 +201,74 @@ const Register = () => {
             </div>
           </div>
 
+          {/* Organization/Company Selection */}
+          <div className="space-y-4 border-t border-slate-800/80 pt-4 mt-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Organization Settings</h3>
+            
+            <div>
+              <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
+                Join Organization
+              </label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                  <Building size={18} />
+                </span>
+                <select
+                  value={selectedOrgId}
+                  onChange={(e) => setSelectedOrgId(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors text-slate-200 text-sm appearance-none cursor-pointer"
+                >
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name} ({org.subdomain})
+                    </option>
+                  ))}
+                  <option value="new">+ Create New Organization</option>
+                </select>
+              </div>
+            </div>
+
+            {selectedOrgId === 'new' && (
+              <div className="space-y-4 bg-slate-900/40 p-4 rounded-xl border border-slate-800/80 animate-fadeIn">
+                <div>
+                  <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
+                    Organization Name
+                  </label>
+                  <input
+                    type="text"
+                    required={selectedOrgId === 'new'}
+                    value={newOrgName}
+                    onChange={(e) => setNewOrgName(e.target.value)}
+                    placeholder="e.g. Acme Corporation"
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
+                    Subdomain / Key
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                      <Globe size={18} />
+                    </span>
+                    <input
+                      type="text"
+                      required={selectedOrgId === 'new'}
+                      value={newOrgSubdomain}
+                      onChange={(e) => setNewOrgSubdomain(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase())}
+                      placeholder="e.g. acme"
+                      className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-500 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 mt-2 cursor-pointer"
+            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 mt-4 cursor-pointer"
           >
             {isSubmitting ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>

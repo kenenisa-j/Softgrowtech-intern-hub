@@ -29,6 +29,9 @@ const Navbar = () => {
             <span className="font-medium text-slate-200 block max-w-[120px] truncate leading-tight">
               {user.name}
             </span>
+            <span className="block text-[11px] text-indigo-400 font-semibold truncate max-w-[120px] leading-tight">
+              {user.tenant_name || 'No Organization'}
+            </span>
             <span className={`inline-block text-[10px] uppercase font-bold tracking-wider leading-none mt-0.5 ${
               user.role === 'mentor' || user.role === 'admin'
                 ? 'text-amber-400'

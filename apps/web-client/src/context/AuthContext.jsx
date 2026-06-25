@@ -24,9 +24,9 @@ const AuthProvider = ({ children }) => {
     setLoading(false)
   }, [])
 
-  const login = async (email, password) => {
+  const login = async (email, password, tenantId) => {
     try {
-      const response = await axios.post('/auth/login', { email, password })
+      const response = await axios.post('/auth/login', { email, password, tenantId })
       const { token: jwt, user: loggedUser } = response.data
       setUser(loggedUser)
       setToken(jwt)

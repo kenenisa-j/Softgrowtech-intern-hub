@@ -1,17 +1,39 @@
-import React, { useState, useContext } from 'react'
+import React, { useState, useEffect, useContext } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthContext } from '../context/AuthContext'
-import { Mail, Lock, ArrowRight, GraduationCap } from 'lucide-react'
+import axios from 'axios'
+import { Mail, Lock, ArrowRight, GraduationCap, Building } from 'lucide-react'
 
 const Login = () => {
   const { login } = useContext(AuthContext)
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [organizations, setOrganizations] = useState([])
+  const [selectedOrgId, setSelectedOrgId] = useState('')
+  const [loadingOrgs, setLoadingOrgs] = useState(true)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   
   const successMsg = location.state?.successMsg || ''
+
+  useEffect(() => {
+    const fetchOrgs = async () => {
+      try {
+        const response = await axios.get('/organizations')
+        const orgs = response.data.organizations || []
+        setOrganizations(orgs)
+        if (orgs.length > 0) {
+          setSelectedOrgId(orgs[0].id)
+        }
+      } catch (err) {
+        console.error('Error fetching organizations:', err)
+      } finally {
+        setLoadingOrgs(false)
+      }
+    }
+    fetchOrgs()
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -19,7 +41,7 @@ const Login = () => {
     setIsSubmitting(true)
 
     try {
-      await login(email, password)
+      await login(email, password, selectedOrgId)
     } catch (err) {
       console.error(err)
       setError(
@@ -59,6 +81,34 @@ const Login = () => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Organization Selector */}
+          <div>
+            <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
+              Select Your Organization
+            </label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
+                <Building size={18} />
+              </span>
+              <select
+                value={selectedOrgId}
+                onChange={(e) => setSelectedOrgId(e.target.value)}
+                disabled={loadingOrgs}
+                className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors text-slate-200 text-sm appearance-none cursor-pointer"
+              >
+                {organizations.length === 0 ? (
+                  <option value="">No organizations available</option>
+                ) : (
+                  organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name} ({org.subdomain})
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          </div>
+
           <div>
             <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
               Email Address
