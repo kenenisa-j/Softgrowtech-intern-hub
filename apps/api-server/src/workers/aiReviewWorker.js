@@ -5,13 +5,7 @@ const { Worker, Queue } = require('bullmq');
 const IORedis = require('ioredis');
 const logger = require('../utils/logger');
 const prisma = require('../prisma/client'); // adjust path if needed
-
-// Redis connection – reuse existing config or default to localhost
-const redisConnection = new IORedis({
-  host: process.env.REDIS_HOST || '127.0.0.1',
-  port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-  maxRetriesPerRequest: null,
-});
+const { redisAvailable, registerMockWorker } = require('../config/redisQueue');
 
 // Queue name
 const AI_REVIEW_QUEUE = 'aiReviewQueue';
@@ -28,90 +22,113 @@ function generateReview() {
   return { score, feedback };
 }
 
-// BullMQ worker definition
-const aiReviewWorker = new Worker(
-  AI_REVIEW_QUEUE,
-  async (job) => {
-    const { submissionId, tenantId, assignmentCode, criteria } = job.data;
-    logger.info({ msg: 'Processing AI review job', submissionId, tenantId });
+// Worker processor logic
+const processor = async (job) => {
+  const { submissionId, tenantId, assignmentCode, criteria } = job.data;
+  logger.info({ msg: 'Processing AI review job', submissionId, tenantId });
 
-    // 1️⃣ Verify tenant credits
-    const tenantCredits = await prisma.tenantCredits.findUnique({
+  // 1️⃣ Verify tenant credits
+  const tenantCredits = await prisma.tenantCredits.findUnique({
+    where: { tenant_id: tenantId },
+  });
+  if (!tenantCredits) {
+    const errMsg = `TenantCredits record not found for tenant ${tenantId}`;
+    logger.warn(errMsg);
+    throw new Error(errMsg);
+  }
+  if (tenantCredits.credits_consumed >= tenantCredits.monthly_credit_limit) {
+    const errMsg = `Tenant ${tenantId} has exhausted its monthly AI credits`;
+    logger.warn(errMsg);
+    throw new Error(errMsg);
+  }
+
+  // 2️⃣ Simulate network latency
+  await wait(3000);
+
+  // 3️⃣ Generate review payload
+  const { score, feedback } = generateReview();
+
+  // 4️⃣ Perform DB transaction
+  const promptTokens = 350; // example static values
+  const completionTokens = 50;
+  const cost = 0.0015; // USD
+
+  await prisma.$transaction(async (tx) => {
+    // Update submission (assumes a Submission model exists)
+    await tx.submission.update({
+      where: { id: submissionId },
+      data: {
+        status: 'reviewed',
+        score,
+        feedback,
+      },
+    });
+
+    // Record AI usage
+    await tx.aiUsageLedger.create({
+      data: {
+        tenant_id: tenantId,
+        feature_key: 'ai_review',
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        calculated_cost: cost,
+      },
+    });
+
+    // Increment tenant consumed credits
+    await tx.tenantCredits.update({
       where: { tenant_id: tenantId },
+      data: {
+        credits_consumed: {
+          increment: cost,
+        },
+      },
     });
-    if (!tenantCredits) {
-      const errMsg = `TenantCredits record not found for tenant ${tenantId}`;
-      logger.warn(errMsg);
-      throw new Error(errMsg);
+  });
+
+  logger.info({ msg: 'AI review completed', submissionId, score });
+  return { score, feedback };
+};
+
+let aiReviewWorker;
+let redisConnection;
+
+if (redisAvailable) {
+  redisConnection = new IORedis({
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+    maxRetriesPerRequest: null,
+  });
+
+  redisConnection.on('error', (err) => {
+    logger.error('Redis worker connection error (AI Review)', { error: err.message });
+  });
+
+  aiReviewWorker = new Worker(AI_REVIEW_QUEUE, processor, {
+    connection: redisConnection,
+    concurrency: 5
+  });
+
+  aiReviewWorker.on('completed', (job, result) => {
+    logger.info({ msg: 'Job completed', jobId: job.id, result });
+  });
+
+  aiReviewWorker.on('failed', (job, err) => {
+    logger.error({ msg: 'Job failed', jobId: job?.id, error: err?.message });
+  });
+
+  process.on('SIGINT', async () => {
+    await aiReviewWorker.close();
+    redisConnection.disconnect();
+    process.exit(0);
+  });
+} else {
+  registerMockWorker(AI_REVIEW_QUEUE, processor);
+  aiReviewWorker = {
+    close: async () => {
+      logger.info('Mock AI Review worker closed.');
     }
-    if (tenantCredits.credits_consumed >= tenantCredits.monthly_credit_limit) {
-      const errMsg = `Tenant ${tenantId} has exhausted its monthly AI credits`;
-      logger.warn(errMsg);
-      throw new Error(errMsg);
-    }
-
-    // 2️⃣ Simulate network latency
-    await wait(3000);
-
-    // 3️⃣ Generate review payload
-    const { score, feedback } = generateReview();
-
-    // 4️⃣ Perform DB transaction
-    const promptTokens = 350; // example static values
-    const completionTokens = 50;
-    const cost = 0.0015; // USD
-
-    await prisma.$transaction(async (tx) => {
-      // Update submission (assumes a Submission model exists)
-      await tx.submission.update({
-        where: { id: submissionId },
-        data: {
-          status: 'reviewed',
-          score,
-          feedback,
-        },
-      });
-
-      // Record AI usage
-      await tx.aiUsageLedger.create({
-        data: {
-          tenant_id: tenantId,
-          feature_key: 'ai_review',
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          calculated_cost: cost,
-        },
-      });
-
-      // Increment tenant consumed credits
-      await tx.tenantCredits.update({
-        where: { tenant_id: tenantId },
-        data: {
-          credits_consumed: {
-            increment: cost,
-          },
-        },
-      });
-    });
-
-    logger.info({ msg: 'AI review completed', submissionId, score });
-    return { score, feedback };
-  },
-  { connection: redisConnection, concurrency: 5 }
-);
-
-aiReviewWorker.on('completed', (job, result) => {
-  logger.info({ msg: 'Job completed', jobId: job.id, result });
-});
-
-aiReviewWorker.on('failed', (job, err) => {
-  logger.error({ msg: 'Job failed', jobId: job?.id, error: err?.message });
-});
-
-process.on('SIGINT', async () => {
-  await aiReviewWorker.close();
-  redisConnection.disconnect();
-  process.exit(0);
-});
+  };
+}
 
 module.exports = { aiReviewWorker, AI_REVIEW_QUEUE };

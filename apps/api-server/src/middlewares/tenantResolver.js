@@ -53,8 +53,33 @@ async function tenantResolver(req, res, next) {
     }
 
     if (!organization) {
-      logger.warn('Tenant could not be resolved', { hostHeader, subdomain });
-      return res.status(404).json({ error: 'Tenant not found' });
+      // Fallback to first organization in DB (or create one if DB is empty)
+      organization = await prisma.organization.findFirst({
+        include: { tenantSettings: true },
+      });
+
+      if (!organization) {
+        organization = await prisma.organization.create({
+          data: {
+            name: 'Default Organization',
+            subdomain: 'default',
+            tenantSettings: {
+              create: {
+                brand_color_hex: '#6366F1',
+                timezone: 'UTC',
+              },
+            },
+            tenantCredits: {
+              create: {
+                monthly_credit_limit: 1000.00,
+                credits_consumed: 0.00,
+              },
+            },
+          },
+          include: { tenantSettings: true },
+        });
+        logger.info('Created default organization and settings for initial setup.');
+      }
     }
 
     // Attach useful tenant data to the request for downstream handlers

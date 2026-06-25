@@ -5,19 +5,21 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const logger = require('./utils/logger');
 
+let ioInstance = null;
+
 /**
  * Initialize Socket.io with the given HTTP server.
  * @param {import('http').Server} httpServer
  */
 function initSocket(httpServer) {
-  const io = new Server(httpServer, {
+  ioInstance = new Server(httpServer, {
     cors: {
       origin: '*', // Adjust in production
       methods: ['GET', 'POST']
     }
   });
 
-  io.use((socket, next) => {
+  ioInstance.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
       return next(new Error('Authentication token missing'));
@@ -37,7 +39,7 @@ function initSocket(httpServer) {
     }
   });
 
-  io.on('connection', (socket) => {
+  ioInstance.on('connection', (socket) => {
     const tenantId = socket.data.user?.tenant_id;
     if (tenantId) {
       const room = `tenant_${tenantId}`;
@@ -49,16 +51,19 @@ function initSocket(httpServer) {
       logger.info('Socket disconnected', { socketId: socket.id });
     });
   });
-
-  // Export a helper to emit notifications to a tenant room
-  function emitTenantNotification(tenantId, event, payload) {
-    const room = `tenant_${tenantId}`;
-    io.to(room).emit(event, payload);
-    logger.info('Emitted tenant notification', { tenantId, event });
-  }
-
-  // Attach helper to module exports for other parts to use
-  module.exports = { initSocket, emitTenantNotification };
 }
 
-module.exports = { initSocket };
+/**
+ * Export a helper to emit notifications to a tenant room.
+ */
+function emitTenantNotification(tenantId, event, payload) {
+  if (!ioInstance) {
+    logger.warn('Socket.io server not initialized. Cannot emit event.', { tenantId, event });
+    return;
+  }
+  const room = `tenant_${tenantId}`;
+  ioInstance.to(room).emit(event, payload);
+  logger.info('Emitted tenant notification', { tenantId, event });
+}
+
+module.exports = { initSocket, emitTenantNotification };

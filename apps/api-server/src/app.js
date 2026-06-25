@@ -35,6 +35,10 @@ if (sentryDsn) {
 app.use(cors());
 app.use(express.json());
 
+// Multi-tenant context resolver middleware
+const tenantResolver = require('./middlewares/tenantResolver');
+app.use(tenantResolver);
+
 // Import database pool connection test (existing functionality)
 require('../config/db');
 
@@ -48,12 +52,13 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/submissions', submissionRoutes);
 
-// New Phase 2 routes
-const assessmentRoutes = require('../routes/assessmentRoutes');
-const exportRoutes = require('../routes/exportRoutes');
+const assessmentRoutes = require('./routes/assessmentRoutes');
+const exportRoutes = require('./routes/exportRoutes');
+const complianceRoutes = require('./routes/complianceRoutes');
 
 app.use('/api/v1/assessments', assessmentRoutes);
 app.use('/api/v1/export', exportRoutes);
+app.use('/api/v1/compliance', complianceRoutes);
 // Root endpoint status check
 app.get('/', (req, res) => {
   res.json({ message: 'Internship Management System API is running successfully.' });

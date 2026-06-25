@@ -1,4 +1,4 @@
-const db = require('../config/db');
+const prisma = require('../src/prisma/client');
 
 const createTask = async (req, res) => {
   const { title, description, deadline } = req.body;
@@ -10,22 +10,26 @@ const createTask = async (req, res) => {
   try {
     const createdBy = req.user.id;
     const domain = req.user.domain || 'Full-Stack';
+    const tenantId = req.tenantId;
 
-    const [result] = await db.query(
-      'INSERT INTO tasks (title, description, deadline, created_by, domain) VALUES (?, ?, ?, ?, ?)',
-      [title, description || null, deadline || null, createdBy, domain]
-    );
+    if (!tenantId) {
+      return res.status(400).json({ message: 'Tenant context is missing.' });
+    }
+
+    const task = await prisma.task.create({
+      data: {
+        title,
+        description: description || null,
+        deadline: deadline ? new Date(deadline) : null,
+        created_by: createdBy,
+        domain,
+        tenant_id: tenantId
+      }
+    });
 
     return res.status(201).json({
       message: 'Task created successfully.',
-      task: {
-        id: result.insertId,
-        title,
-        description: description || null,
-        deadline: deadline || null,
-        created_by: createdBy,
-        domain
-      }
+      task
     });
   } catch (error) {
     console.error('Create task error details:', error);
@@ -36,7 +40,18 @@ const createTask = async (req, res) => {
 const getAllTasks = async (req, res) => {
   try {
     const domain = req.user.domain || 'Full-Stack';
-    const [tasks] = await db.query('SELECT * FROM tasks WHERE domain = ?', [domain]);
+    const tenantId = req.tenantId;
+
+    if (!tenantId) {
+      return res.status(400).json({ message: 'Tenant context is missing.' });
+    }
+
+    const tasks = await prisma.task.findMany({
+      where: {
+        domain,
+        tenant_id: tenantId
+      }
+    });
 
     return res.json({ tasks });
   } catch (error) {

@@ -2,38 +2,87 @@ const { Queue } = require('bullmq');
 const Redis = require('ioredis');
 const logger = require('../utils/logger');
 
-// Retrieve Redis connection URL securely from environment
-const redisUrl = process.env.REDIS_URL;
+// Retrieve Redis connection URL securely from environment, default to localhost
+const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
-if (!redisUrl) {
-  logger.error('REDIS_URL environment variable is not defined.');
-  throw new Error('REDIS_URL environment variable is not defined.');
+// Check if Redis is running synchronously using a child process
+const { execSync } = require('child_process');
+let redisAvailable = false;
+try {
+  const checkScript = `
+    const Redis = require('ioredis');
+    const redis = new Redis('${redisUrl}', { maxRetriesPerRequest: 1, connectTimeout: 1000 });
+    redis.ping()
+      .then(() => process.exit(0))
+      .catch(() => process.exit(1));
+  `;
+  execSync(`node -e "${checkScript.replace(/\n/g, ' ')}"`, { stdio: 'ignore', timeout: 1500 });
+  redisAvailable = true;
+} catch (e) {
+  redisAvailable = false;
 }
 
-// Initialize ioredis connection pool
-// BullMQ requires maxRetriesPerRequest to be null
-const redisConnection = new Redis(redisUrl, {
-  maxRetriesPerRequest: null,
-  reconnectOnError: (err) => {
-    logger.error('Redis encountered connection error, attempting reconnection', { error: err.message });
-    return true;
+const mockWorkers = {};
+function registerMockWorker(name, processor) {
+  mockWorkers[name] = processor;
+}
+
+class MockQueue {
+  constructor(name) {
+    this.name = name;
   }
-});
+  async add(jobName, data, options = {}) {
+    logger.info({ msg: `[Mock Queue: ${this.name}] Enqueued job "${jobName}"`, jobName, data });
+    setImmediate(async () => {
+      try {
+        const processor = mockWorkers[this.name];
+        if (processor) {
+          logger.info({ msg: `[Mock Queue: ${this.name}] Starting worker for job "${jobName}"`, jobName });
+          await processor({ data, id: `mock-job-${Date.now()}` });
+          logger.info({ msg: `[Mock Queue: ${this.name}] Worker successfully completed job "${jobName}"`, jobName });
+        } else {
+          logger.warn({ msg: `[Mock Queue: ${this.name}] No worker registered for queue`, jobName });
+        }
+      } catch (err) {
+        logger.error({ msg: `[Mock Queue: ${this.name}] Job "${jobName}" failed`, jobName, error: err.message });
+      }
+    });
+    return { id: `mock-job-${Date.now()}` };
+  }
+}
 
-redisConnection.on('connect', () => {
-  logger.info('Successfully connected to Redis server for background workers.');
-});
+let aiReviewQueue;
+let emailQueue;
+let pdfGenerationQueue;
+let redisConnection;
 
-redisConnection.on('error', (err) => {
-  logger.error('Redis connection pool error', { error: err.message, stack: err.stack });
-});
+if (redisAvailable) {
+  logger.info('Redis server is available. Initializing real BullMQ queues.');
+  redisConnection = new Redis(redisUrl, {
+    maxRetriesPerRequest: null,
+    reconnectOnError: (err) => {
+      logger.error('Redis encountered connection error, attempting reconnection', { error: err.message });
+      return true;
+    }
+  });
 
-// Initialize three distinct BullMQ queues driven by the shared Redis connection
-const aiReviewQueue = new Queue('aiReviewQueue', { connection: redisConnection });
-const emailQueue = new Queue('emailQueue', { connection: redisConnection });
-const pdfGenerationQueue = new Queue('pdfGenerationQueue', { connection: redisConnection });
+  redisConnection.on('connect', () => {
+    logger.info('Successfully connected to Redis server for background workers.');
+  });
 
-logger.info('Successfully initialized BullMQ Queue instances: aiReviewQueue, emailQueue, pdfGenerationQueue.');
+  redisConnection.on('error', (err) => {
+    logger.error('Redis connection pool error', { error: err.message, stack: err.stack });
+  });
+
+  aiReviewQueue = new Queue('aiReviewQueue', { connection: redisConnection });
+  emailQueue = new Queue('emailQueue', { connection: redisConnection });
+  pdfGenerationQueue = new Queue('pdfGenerationQueue', { connection: redisConnection });
+} else {
+  logger.warn('⚠️ Redis is NOT running. Using in-memory background worker queue simulation for development.');
+  aiReviewQueue = new MockQueue('aiReviewQueue');
+  emailQueue = new MockQueue('emailQueue');
+  pdfGenerationQueue = new MockQueue('pdfGenerationQueue');
+}
 
 // Map queue names to their instances for easy dynamic access
 const queues = {
@@ -94,4 +143,6 @@ module.exports = {
   pdfGenerationQueue,
   addJob,
   redisConnection,
+  redisAvailable,
+  registerMockWorker,
 };

@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const prisma = require('../src/prisma/client');
 
 const register = async (req, res) => {
   const { name, email, password, role, domain } = req.body;
@@ -14,8 +14,10 @@ const register = async (req, res) => {
 
   try {
     // Check if user already exists
-    const [existingUsers] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (existingUsers.length > 0) {
+    const existingUser = await prisma.user.findFirst({
+      where: { email }
+    });
+    if (existingUser) {
       return res.status(400).json({ message: 'User already exists with this email.' });
     }
 
@@ -23,18 +25,30 @@ const register = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Insert user into the users table
-    const [result] = await db.query(
-      'INSERT INTO users (name, email, password_hash, role, domain) VALUES (?, ?, ?, ?, ?)',
-      [name, email, passwordHash, roleLower, userDomain]
-    );
+    // Get tenant ID from request (resolved by tenantResolver middleware)
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ message: 'Tenant context is missing.' });
+    }
+
+    // Insert user into the users table using Prisma
+    const createdUser = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password_hash: passwordHash,
+        role: roleLower,
+        domain: userDomain,
+        tenant_id: tenantId
+      }
+    });
 
     const user = {
-      id: result.insertId,
-      name,
-      email,
-      role: roleLower,
-      domain: userDomain
+      id: createdUser.id,
+      name: createdUser.name,
+      email: createdUser.email,
+      role: createdUser.role,
+      domain: createdUser.domain
     };
 
     // Generate production JWT token
@@ -64,25 +78,25 @@ const login = async (req, res) => {
 
   try {
     // Find user by email
-    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (users.length === 0) {
+    const dbUser = await prisma.user.findFirst({
+      where: { email }
+    });
+    if (!dbUser) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    const user = users[0];
-
     // Verify password against stored bcrypt hash
-    const isMatch = await bcrypt.compare(password, user.password_hash);
+    const isMatch = await bcrypt.compare(password, dbUser.password_hash);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     const payload = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      domain: user.domain
+      id: dbUser.id,
+      name: dbUser.name,
+      email: dbUser.email,
+      role: dbUser.role,
+      domain: dbUser.domain
     };
 
     // Generate production JWT token
