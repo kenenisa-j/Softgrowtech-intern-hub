@@ -33,7 +33,24 @@ if (sentryDsn) {
 }
 
 // Global Core Middleware
-app.use(cors());
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    // Allow localhost and any Vercel deployment
+    const allowed = [
+      /^http:\/\/localhost(:\d+)?$/,
+      /\.vercel\.app$/,
+    ];
+    const isAllowed = allowed.some(pattern => pattern.test(origin));
+    callback(isAllowed ? null : new Error('CORS blocked'), isAllowed);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight for all routes
 app.use(express.json({ limit: '10mb' }));
 
 // Static file serving for uploads and certificates
@@ -42,8 +59,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/public', express.static(path.join(__dirname, '..', 'public')))
 
 // Multi-tenant context resolver middleware
+// Skip for auth routes (login/register don't need a tenant context)
 const tenantResolver = require('./middlewares/tenantResolver');
-app.use(tenantResolver);
+app.use((req, res, next) => {
+  const skip = [
+    '/api/v1/auth/login',
+    '/api/v1/auth/register',
+    '/api/v1/auth/forgot-password',
+    '/api/v1/auth/reset-password',
+    '/api/v1/superadmin',
+  ];
+  if (skip.some(path => req.path.startsWith(path.replace('/api/v1', '')))) {
+    return next();
+  }
+  return tenantResolver(req, res, next);
+});
 
 // Import database pool connection test (existing functionality)
 require('../config/db');
