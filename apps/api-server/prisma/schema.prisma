@@ -76,6 +76,7 @@ model Tenant {
   // Relations
   users              User[]
   roles              Role[]
+  tenantSettings     TenantSettings?
   invitations        Invitation[]
   attendances        Attendance[]
   internshipPrograms InternshipProgram[]

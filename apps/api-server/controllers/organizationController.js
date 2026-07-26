@@ -22,6 +22,12 @@ const createOrganization = async (req, res) => {
         name: name.trim(),
         subdomain: normalizedSubdomain,
         status: 'PENDING_APPROVAL',
+        tenantSettings: {
+          create: {
+            brand_color_hex: '#6366F1',
+            timezone: 'UTC',
+          },
+        },
         tenantCredits: {
           create: {
             monthly_credit_limit: 1000.00,
