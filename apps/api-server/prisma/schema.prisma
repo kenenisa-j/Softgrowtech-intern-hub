@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -76,7 +76,6 @@ model Tenant {
   // Relations
   users              User[]
   roles              Role[]
-  tenantSettings     TenantSettings?
   invitations        Invitation[]
   attendances        Attendance[]
   internshipPrograms InternshipProgram[]
