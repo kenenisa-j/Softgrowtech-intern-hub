@@ -66,7 +66,7 @@ const InternDashboard = () => {
   // Socket chat — re-connect whenever token or user changes so auth is never stale
   useEffect(() => {
     if (!token || !user?.tenantId) return
-    const socket = io('http://localhost:5001', { auth: { token } })
+    const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:5001', { auth: { token } })
     socketRef.current = socket
     socket.on('message', (msg) => setMessages(prev => [...prev, msg]))
     socket.on('chat_history', (hist) => setMessages(hist))

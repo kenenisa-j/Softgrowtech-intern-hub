@@ -2,7 +2,9 @@ import { createContext, useState, useMemo } from 'react'
 import axios from 'axios'
 import { useNavigate } from 'react-router-dom'
 
-const API_BASE_URL = import.meta.env.DEV ? 'http://localhost:5001/api/v1' : '/api/v1';
+const API_BASE_URL = import.meta.env.DEV
+  ? 'http://localhost:5001/api/v1'
+  : (import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1');
 axios.defaults.baseURL = API_BASE_URL;
 
 // eslint-disable-next-line react-refresh/only-export-components
