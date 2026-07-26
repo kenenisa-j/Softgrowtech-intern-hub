@@ -16,7 +16,7 @@ async function softDeleteTenantData(tenantId) {
   
   return await prisma.$transaction(async (tx) => {
     // Check if organization exists first
-    const org = await tx.organization.findUnique({
+    const org = await tx.tenant.findUnique({
       where: { id: tenantId }
     });
     if (!org) {
@@ -69,7 +69,7 @@ async function permanentErasure(tenantId) {
 
   return await prisma.$transaction(async (tx) => {
     // Check if organization exists
-    const org = await tx.organization.findUnique({
+    const org = await tx.tenant.findUnique({
       where: { id: tenantId }
     });
     if (!org) {
@@ -150,7 +150,7 @@ async function permanentErasure(tenantId) {
     });
 
     // 10. Delete UserRoles (dependent on Users or Roles)
-    await tx.userRole.deleteMany({
+    await tx.userRoleMapping.deleteMany({
       where: {
         user: {
           tenant_id: tenantId
@@ -210,7 +210,7 @@ async function permanentErasure(tenantId) {
     });
 
     // 18. Delete the root Organization container itself
-    await tx.organization.delete({
+    await tx.tenant.delete({
       where: { id: tenantId }
     });
 
@@ -233,7 +233,7 @@ async function permanentErasure(tenantId) {
 async function compileComplianceExport(tenantId) {
   logger.info(`Compiling GDPR compliance export payload for tenant: ${tenantId}`);
 
-  const tenantData = await prisma.organization.findUnique({
+  const tenantData = await prisma.tenant.findUnique({
     where: { id: tenantId },
     include: {
       tenantSettings: true,

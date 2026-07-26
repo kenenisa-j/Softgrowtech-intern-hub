@@ -10,62 +10,195 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Organization {
-  id        String   @id @default(uuid()) @db.VarChar(36)
-  name      String   @db.VarChar(255)
-  subdomain String   @unique @db.VarChar(255)
-  createdAt DateTime @default(now())
+enum TenantStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum InternTier {
+  FREE_25
+  GROWTH_50
+  ENTERPRISE_100
+  UNCAPPED
+}
+
+enum UserRole {
+  SUPERADMIN
+  ORG_ADMIN
+  MENTOR
+  INTERN
+  STUDENT
+}
+
+// Onboarding status for intern applicants
+enum UserStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// Controls whether an org accepts public applications
+enum OnboardingMode {
+  PUBLIC
+  PRIVATE
+}
+
+model Tenant {
+  id               String       @id @default(uuid()) @db.VarChar(36)
+  name             String       @db.VarChar(255)
+  subdomain        String       @unique @db.VarChar(255)
+  createdAt        DateTime     @default(now())
+  status           TenantStatus @default(PENDING_APPROVAL)
+  tier             InternTier   @default(FREE_25)
+  isBillingActive  Boolean      @default(false)
+  isPaymentActive  Boolean      @default(false)
+  chapaReference   String?      @unique @db.VarChar(255)
+  maxInternLimit   Int          @default(25)
+  stripeCustomerId String?      @db.VarChar(255)
+  aiCreditsBalance Int          @default(1000)
+  onboardingMode   OnboardingMode @default(PUBLIC)
+
+  // Organization public profile fields
+  industry         String?      @db.VarChar(100)
+  location         String?      @db.VarChar(255)
+  website          String?      @db.VarChar(255)
+  company_size     String?      @db.VarChar(50)
+  phone            String?      @db.VarChar(50)
+  linkedin_url     String?      @db.VarChar(255)
+  twitter_url      String?      @db.VarChar(255)
+  is_verified      Boolean      @default(false)
+  description      String?      @db.Text
+  logo_url         String?      @db.VarChar(255)
+  cover_url        String?      @db.VarChar(255)
 
   // Relations
-  users            User[]
-  roles            Role[]
-  tenantSettings   TenantSettings?
-  invitations      Invitation[]
-  // New Phase 2 relations
+  users              User[]
+  roles              Role[]
+  tenantSettings     TenantSettings?
+  invitations        Invitation[]
+  attendances        Attendance[]
+  internshipPrograms InternshipProgram[]
+  applications       Application[]
+  evaluations        Evaluation[]
+  messages           Message[]
+  notifications      Notification[]
   attendanceSessions AttendanceSession[]
-  assessments      Assessment[]
-  notifications    Notification[]
-  aiUsageLedgers   AIUsageLedger[]
-  tenantCredits    TenantCredits?
-  tenantFeatures   TenantFeature[]
-  tasks            Task[]
-
-  // Optional subscription plan (e.g., Starter, Pro, Enterprise)
-  plan             String?  @default("Starter")
-  status           String   @default("PENDING_APPROVAL") @db.VarChar(50)
-  isBillingActive  Boolean  @default(false)
-  stripeCustomerId String?  @db.VarChar(255)
-  stripeSubscriptionId String? @db.VarChar(255)
-  aiCreditsBalance Int      @default(0)
+  assessments        Assessment[]
+  aiUsageLedgers     AIUsageLedger[]
+  tenantCredits      TenantCredits?
+  tenantFeatures     TenantFeature[]
+  tasks              Task[]
+  reviews            Review[]
 
   @@map("organizations")
 }
 
 model User {
-  // Existing fields
   id            String   @id @default(uuid()) @db.VarChar(36)
-  tenant_id     String   @db.VarChar(36)
+  tenant_id     String?  @db.VarChar(36)
   name          String   @db.VarChar(255) @default("")
   email         String   @db.VarChar(255)
   password_hash String   @db.VarChar(255)
-  role          String   @db.VarChar(50) @default("intern")
+  role          UserRole @default(INTERN)
   domain        String   @db.VarChar(100) @default("Full-Stack")
   createdAt     DateTime @default(now())
   is_active     Boolean  @default(true)
+  status        UserStatus @default(PENDING)
+  reset_token        String?   @db.VarChar(255)
+  reset_token_expiry DateTime?
 
-  organization  Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  roles         UserRole[]
+  // Student / global profile fields
+  avatar_url       String?  @db.VarChar(255)
+  bio              String?  @db.Text
+  university       String?  @db.VarChar(255)
+  department       String?  @db.VarChar(255)
+  graduation_year  Int?
+  languages        String?  @db.VarChar(255)
+  github_url       String?  @db.VarChar(255)
+  linkedin_url     String?  @db.VarChar(255)
+  portfolio_url    String?  @db.VarChar(255)
+  resume_url       String?  @db.VarChar(255)
 
-  // New reverse relations for Phase 2 models
-  attendanceRecords      AttendanceRecord[]
-  assessmentAttempts    AssessmentAttempt[]
+  tenant        Tenant?  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  roles         UserRoleMapping[]
+
+  attendanceRecords       AttendanceRecord[]
+  assessmentAttempts      AssessmentAttempt[]
   notificationPreferences NotificationPreference[]
+  attendances             Attendance[]        @relation("InternAttendance")
+  approvedAttendances     Attendance[]        @relation("ApprovedAttendance")
+  applications            Application[]
+  internEvaluations       Evaluation[]        @relation("InternEvaluations")
+  mentorEvaluations       Evaluation[]        @relation("MentorEvaluations")
+  sentMessages            Message[]           @relation("SentMessages")
+  receivedMessages        Message[]           @relation("ReceivedMessages")
+  notifications           Notification[]      @relation("UserNotifications")
+  programMentors          ProgramMentor[]
+  savedInternships        SavedInternship[]
+  inviteTokens            InviteToken[]
+  reviewsGiven            Review[]            @relation("ReviewsGiven")
+  reviewsReceived         Review[]            @relation("ReviewsReceived")
 
-  // Unique constraint ensuring email is unique per organization (tenant)
-  @@unique([tenant_id, email])
-  // Index for optimizing queries targeting users within a tenant
+  @@unique([email, tenant_id])
   @@index([tenant_id])
+  @@index([email])  // Added: fast single-column email lookup for login/registration
   @@map("users")
+}
+
+
+
+model ProgramMentor {
+  program_id String @db.VarChar(36)
+  user_id    String @db.VarChar(36)
+
+  program    InternshipProgram @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([program_id, user_id])
+  @@map("program_mentors")
+}
+
+model SavedInternship {
+  id         String            @id @default(uuid()) @db.VarChar(36)
+  user_id    String            @db.VarChar(36)
+  program_id String            @db.VarChar(36)
+  created_at DateTime          @default(now())
+
+  user       User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  program    InternshipProgram @relation(fields: [program_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, program_id])
+  @@map("saved_internships")
+}
+
+model InviteToken {
+  id         String   @id @default(uuid()) @db.VarChar(36)
+  token      String   @unique @db.VarChar(255)
+  user_id    String   @db.VarChar(36)
+  expires_at DateTime
+  created_at DateTime @default(now())
+
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("invite_tokens")
+}
+
+model Review {
+  id           String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id    String   @db.VarChar(36)
+  reviewer_id  String   @db.VarChar(36)
+  receiver_id  String   @db.VarChar(36)
+  rating       Int
+  comment      String?  @db.Text
+  created_at   DateTime @default(now())
+
+  tenant       Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  reviewer     User     @relation("ReviewsGiven", fields: [reviewer_id], references: [id], onDelete: Cascade)
+  receiver     User     @relation("ReviewsReceived", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
 }
 
 model Role {
@@ -74,13 +207,12 @@ model Role {
   name      String   @db.VarChar(100)
   createdAt DateTime @default(now())
 
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  permissions  RolePermission[]
-  users        UserRole[]
-  invitations  Invitation[]
-  // Unique constraint ensuring role names are unique within a tenant
+  tenant    Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  users       UserRoleMapping[]
+  invitations Invitation[]
+
   @@unique([tenant_id, name])
-  // Index for role lookup under a tenant
   @@index([tenant_id])
   @@map("roles")
 }
@@ -103,13 +235,12 @@ model RolePermission {
   permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
 
   @@id([role_id, permission_id])
-  // Indexes for relational joins and reverse lookups
   @@index([role_id])
   @@index([permission_id])
   @@map("role_permissions")
 }
 
-model UserRole {
+model UserRoleMapping {
   user_id String @db.VarChar(36)
   role_id String @db.VarChar(36)
 
@@ -117,20 +248,19 @@ model UserRole {
   role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
 
   @@id([user_id, role_id])
-  // Indexes for relational joins and reverse lookups
   @@index([user_id])
   @@index([role_id])
   @@map("user_roles")
 }
 
 model TenantSettings {
-  id          String @id @default(uuid()) @db.VarChar(36)
-  tenant_id   String @unique @db.VarChar(36)
-  logo_url    String? @db.VarChar(255)
-  brand_color_hex String @default("#000000") @db.VarChar(7)
-  timezone    String @default("UTC") @db.VarChar(50)
+  id              String  @id @default(uuid()) @db.VarChar(36)
+  tenant_id       String  @unique @db.VarChar(36)
+  logo_url        String? @db.VarChar(255)
+  brand_color_hex String  @default("#000000") @db.VarChar(7)
+  timezone        String  @default("UTC") @db.VarChar(50)
 
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant          Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@map("tenant_settings")
 }
@@ -145,97 +275,110 @@ model Invitation {
   is_accepted Boolean  @default(false)
   created_at  DateTime @default(now())
 
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  role        Role        @relation(fields: [role_id], references: [id])
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  role        Role     @relation(fields: [role_id], references: [id])
 
   @@index([tenant_id])
   @@map("invitations")
 }
-// Phase 2 models
 
 model AttendanceSession {
-  id String @id @default(uuid()) @db.VarChar(36)
-  tenant_id String @db.VarChar(36)
-  title String @db.VarChar(255)
-  date DateTime
-  host_ip String? @db.VarChar(45)
-  open_time DateTime
-  close_time DateTime?
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  id                String             @id @default(uuid()) @db.VarChar(36)
+  tenant_id         String             @db.VarChar(36)
+  title             String             @db.VarChar(255)
+  date              DateTime
+  host_ip           String?            @db.VarChar(45)
+  open_time         DateTime
+  close_time        DateTime?
+  tenant            Tenant             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   attendanceRecords AttendanceRecord[]
+
   @@map("attendance_sessions")
 }
 
 model AttendanceRecord {
-  id String @id @default(uuid()) @db.VarChar(36)
-  session_id String @db.VarChar(36)
-  user_id String @db.VarChar(36)
-  attended_at DateTime @default(now())
-  session AttendanceSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id          String            @id @default(uuid()) @db.VarChar(36)
+  session_id  String            @db.VarChar(36)
+  user_id     String            @db.VarChar(36)
+  attended_at DateTime          @default(now())
+  session     AttendanceSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
   @@unique([session_id, user_id])
   @@map("attendance_records")
 }
 
 model Assessment {
-  id String @id @default(uuid()) @db.VarChar(36)
-  tenant_id String @db.VarChar(36)
-  title String @db.VarChar(255)
+  id           String              @id @default(uuid()) @db.VarChar(36)
+  tenant_id    String              @db.VarChar(36)
+  title        String              @db.VarChar(255)
   total_points Int
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  questions Question[]
-  attempts AssessmentAttempt[]
+  tenant       Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  questions    Question[]
+  attempts     AssessmentAttempt[]
+
   @@map("assessments")
 }
 
 model Question {
-  id String @id @default(uuid()) @db.VarChar(36)
-  assessment_id String @db.VarChar(36)
-  text String @db.Text
-  point_value Int @default(1)
-  assessment Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  id            String         @id @default(uuid()) @db.VarChar(36)
+  assessment_id String         @db.VarChar(36)
+  text          String         @db.Text
+  point_value   Int            @default(1)
+  assessment    Assessment     @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
   answerOptions AnswerOption[]
+
   @@map("questions")
 }
 
 model AnswerOption {
-  id String @id @default(uuid()) @db.VarChar(36)
-  question_id String @db.VarChar(36)
-  text String @db.Text
-  is_correct Boolean @default(false)
-  question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  question_id String   @db.VarChar(36)
+  text        String   @db.Text
+  is_correct  Boolean  @default(false)
+  question    Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
   @@map("answer_options")
 }
 
 model AssessmentAttempt {
-  id String @id @default(uuid()) @db.VarChar(36)
-  tenant_id String @db.VarChar(36)
-  assessment_id String @db.VarChar(36)
-  user_id String? @db.VarChar(36)
-  total_score Int
-  is_passed Boolean
-  createdAt DateTime @default(now())
-  assessment Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [user_id], references: [id])
+  id            String     @id @default(uuid()) @db.VarChar(36)
+  tenant_id     String     @db.VarChar(36)
+  assessment_id String     @db.VarChar(36)
+  user_id       String?    @db.VarChar(36)
+  total_score   Int
+  is_passed     Boolean
+  createdAt     DateTime   @default(now())
+  assessment    Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  user          User?      @relation(fields: [user_id], references: [id])
+
   @@map("assessment_attempts")
 }
 
 model Notification {
-  id String @id @default(uuid()) @db.VarChar(36)
-  tenant_id String @db.VarChar(36)
-  type String @db.VarChar(50)
-  payload Json
-  createdAt DateTime @default(now())
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id   String   @db.VarChar(36)
+  user_id     String   @db.VarChar(36)
+  type        String   @db.VarChar(50)
+  content     String   @db.Text
+  is_read     Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user        User     @relation("UserNotifications", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([user_id])
   @@map("notifications")
 }
 
 model NotificationPreference {
-  id String @id @default(uuid()) @db.VarChar(36)
-  user_id String @db.VarChar(36)
-  channel String @db.VarChar(50)
+  id      String  @id @default(uuid()) @db.VarChar(36)
+  user_id String  @db.VarChar(36)
+  channel String  @db.VarChar(50)
   enabled Boolean @default(true)
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
   @@map("notification_preferences")
 }
 
@@ -245,23 +388,23 @@ model AIUsageLedger {
   feature_key       String   @db.VarChar(100)
   prompt_tokens     Int
   completion_tokens Int
-  calculated_cost   Decimal   @db.Decimal(10,4)
+  calculated_cost   Decimal  @db.Decimal(10, 4)
   created_at        DateTime @default(now())
 
-  tenant Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id])
   @@map("ai_usage_ledger")
 }
 
 model TenantCredits {
-  id                  String   @id @default(uuid()) @db.VarChar(36)
-  tenant_id           String   @unique @db.VarChar(36)
-  monthly_credit_limit Decimal   @default(50.00) @db.Decimal(10,2)
-  credits_consumed    Decimal   @default(0.00) @db.Decimal(10,2)
-  reset_date          DateTime @default(now())
+  id                   String   @id @default(uuid()) @db.VarChar(36)
+  tenant_id            String   @unique @db.VarChar(36)
+  monthly_credit_limit Decimal  @default(50.00) @db.Decimal(10, 2)
+  credits_consumed     Decimal  @default(0.00) @db.Decimal(10, 2)
+  reset_date           DateTime @default(now())
 
-  tenant Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant               Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id])
   @@map("tenant_credits")
@@ -275,7 +418,7 @@ model TenantFeature {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@unique([tenant_id, feature_key])
   @@index([tenant_id])
@@ -283,17 +426,21 @@ model TenantFeature {
 }
 
 model Task {
-  id          String   @id @default(uuid()) @db.VarChar(36)
-  tenant_id   String   @db.VarChar(36)
-  title       String   @db.VarChar(255)
-  description String?  @db.Text
-  deadline    DateTime?
-  domain      String   @db.VarChar(100) @default("Full-Stack")
-  created_by  String   @db.VarChar(36)
-  created_at  DateTime @default(now())
+  id              String       @id @default(uuid()) @db.VarChar(36)
+  tenant_id       String       @db.VarChar(36)
+  title           String       @db.VarChar(255)
+  description     String?      @db.Text
+  deadline        DateTime?
+  domain          String       @db.VarChar(100) @default("Full-Stack")
+  created_by      String       @db.VarChar(36)
+  created_at      DateTime     @default(now())
+  priority        String       @default("MEDIUM") @db.VarChar(50) // LOW, MEDIUM, HIGH
+  attachment_path String?      @db.VarChar(255)
+  resources       String?      @db.Text
+  points          Int          @default(100)
 
-  organization Organization @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  submissions  Submission[]
+  tenant          Tenant       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  submissions     Submission[]
 
   @@index([tenant_id])
   @@map("tasks")
@@ -313,7 +460,7 @@ model Submission {
   graded_at       DateTime?
   score           Int?
 
-  task Task @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  task            Task      @relation(fields: [task_id], references: [id], onDelete: Cascade)
 
   @@index([task_id])
   @@map("submissions")
@@ -333,4 +480,122 @@ model ProcessedEvent {
   processedAt DateTime @default(now())
 
   @@map("processed_events")
+}
+
+model Attendance {
+  id           String    @id @default(uuid()) @db.VarChar(36)
+  tenant_id    String    @db.VarChar(36)
+  intern_id    String    @db.VarChar(36)
+  date         DateTime  @db.Date
+  check_in     DateTime?
+  check_out    DateTime?
+  status       String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  approved_by  String?   @db.VarChar(36)
+
+  tenant       Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  intern       User      @relation("InternAttendance", fields: [intern_id], references: [id], onDelete: Cascade)
+  approver     User?     @relation("ApprovedAttendance", fields: [approved_by], references: [id])
+
+  @@unique([intern_id, date])
+  @@index([tenant_id])
+  @@map("attendance")
+}
+
+model InternshipProgram {
+  id               String    @id @default(uuid()) @db.VarChar(36)
+  tenant_id        String    @db.VarChar(36)
+  title            String    @db.VarChar(255)
+  description      String    @db.Text
+  category         String    @db.VarChar(100)
+  skills           String    @db.Text // Comma-separated list of tags
+  type             String    @default("ONSITE") // ONSITE, REMOTE, HYBRID
+  is_paid          Boolean   @default(false)
+  stipend          Decimal?  @db.Decimal(10, 2)
+  duration         String    @db.VarChar(50) // e.g., "3 Months"
+  start_date       DateTime
+  end_date         DateTime
+  positions        Int       @default(5)
+  deadline         DateTime
+  status           String    @default("OPEN") // OPEN, CLOSED, ARCHIVED
+  visibility       String    @default("PUBLIC") // PUBLIC, PRIVATE
+  location         String?   @db.VarChar(255)
+  responsibilities String?   @db.Text
+  benefits         String?   @db.Text
+  preferred_quals  String?   @db.Text
+
+  tenant           Tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  applications     Application[]
+  mentors          ProgramMentor[]
+  savedBy          SavedInternship[]
+
+  @@index([tenant_id])
+  @@map("internship_programs")
+}
+
+model Application {
+  id                  String            @id @default(uuid()) @db.VarChar(36)
+  tenant_id           String            @db.VarChar(36)
+  program_id          String            @db.VarChar(36)
+  applicant_user_id   String?           @db.VarChar(36) // Set after intern account is created on ACCEPTED
+  name                String            @db.VarChar(255)
+  email               String            @db.VarChar(255)
+  cv_path             String            @db.VarChar(255)
+  transcript_path     String?           @db.VarChar(255)
+  cover_letter        String?           @db.Text
+  portfolio_link      String?           @db.VarChar(255)
+  github_link         String?           @db.VarChar(255)
+  linkedin_link       String?           @db.VarChar(255)
+  status              String            @default("PENDING") // PENDING, SHORTLISTED, INTERVIEW, ACCEPTED, REJECTED
+  assigned_mentor_id  String?           @db.VarChar(36)
+
+  tenant              Tenant            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  program             InternshipProgram @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  mentor              User?             @relation(fields: [assigned_mentor_id], references: [id])
+
+  @@index([tenant_id])
+  @@map("applications")
+}
+
+model Evaluation {
+  id               String    @id @default(uuid()) @db.VarChar(36)
+  tenant_id        String    @db.VarChar(36)
+  intern_id        String    @db.VarChar(36)
+  mentor_id        String    @db.VarChar(36)
+  type             String    @default("WEEKLY") // WEEKLY, MONTHLY, FINAL
+  date             DateTime  @default(now())
+  technical_skills Int       @default(0)
+  communication    Int       @default(0)
+  teamwork         Int       @default(0)
+  problem_solving  Int       @default(0)
+  attendance       Int       @default(0)
+  professionalism  Int       @default(0)
+  overall_score    Decimal   @db.Decimal(5, 2)
+  comments         String?   @db.Text
+
+  tenant           Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  intern           User      @relation("InternEvaluations", fields: [intern_id], references: [id], onDelete: Cascade)
+  mentor           User      @relation("MentorEvaluations", fields: [mentor_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@map("evaluations")
+}
+
+model Message {
+  id             String    @id @default(uuid()) @db.VarChar(36)
+  tenant_id      String    @db.VarChar(36)
+  sender_id      String    @db.VarChar(36)
+  receiver_id    String    @db.VarChar(36)
+  content        String?   @db.Text
+  file_path      String?   @db.VarChar(255)
+  file_name      String?   @db.VarChar(255)
+  is_read        Boolean   @default(false)
+  created_at     DateTime  @default(now())
+
+  tenant         Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  sender         User      @relation("SentMessages", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver       User      @relation("ReceivedMessages", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([sender_id, receiver_id])
+  @@map("messages")
 }

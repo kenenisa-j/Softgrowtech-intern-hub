@@ -33,57 +33,10 @@ async function tenantResolver(req, res, next) {
     const hostHeader = req.headers.host;
     const subdomain = getSubdomain(hostHeader);
     let organization = null;
-
-    if (subdomain) {
-      organization = await prisma.organization.findUnique({
-        where: { subdomain },
-        include: { tenantSettings: true },
-      });
-    }
-
-    if (!organization) {
-      // Fallback to explicit tenant header – useful for local dev / testing
-      const tenantIdHeader = req.headers['x-tenant-id'];
-      if (tenantIdHeader) {
-        organization = await prisma.organization.findUnique({
-          where: { id: tenantIdHeader },
-          include: { tenantSettings: true },
-        });
-      }
-    }
-
-    if (!organization) {
-      // Fallback to first organization in DB (or create one if DB is empty)
-      organization = await prisma.organization.findFirst({
-        include: { tenantSettings: true },
-      });
-
-      if (!organization) {
-        organization = await prisma.organization.create({
-          data: {
-            name: 'Default Organization',
-            subdomain: 'default',
-            tenantSettings: {
-              create: {
-                brand_color_hex: '#6366F1',
-                timezone: 'UTC',
-              },
-            },
-            tenantCredits: {
-              create: {
-                monthly_credit_limit: 1000.00,
-                credits_consumed: 0.00,
-              },
-            },
-          },
-          include: { tenantSettings: true },
-        });
-        logger.info('Created default organization and settings for initial setup.');
-      }
-    }
-
-    // Read JWT if present in Authorization header to check if user is a SUPERADMIN
+    let tokenTenantId = null;
     let isSuperadmin = false;
+
+    // Read JWT if present in Authorization header to check roles and extract tenant context
     const authHeader = req.headers['authorization'];
     if (authHeader) {
       const parts = authHeader.split(' ');
@@ -92,8 +45,11 @@ async function tenantResolver(req, res, next) {
         try {
           const jwt = require('jsonwebtoken');
           const decoded = jwt.verify(token, process.env.JWT_SECRET || 'b49fca92c813a2957b102143df8c7c10b784a91aef');
-          if (decoded && decoded.role === 'superadmin') {
-            isSuperadmin = true;
+          if (decoded) {
+            tokenTenantId = decoded.tenantId || decoded.tenant_id;
+            if (decoded.role === 'superadmin' || decoded.role === 'SUPERADMIN') {
+              isSuperadmin = true;
+            }
           }
         } catch (err) {
           // Token decode errors ignored here; authenticating middleware will handle invalid signatures downstream
@@ -101,19 +57,89 @@ async function tenantResolver(req, res, next) {
       }
     }
 
-    // Global Tenant Lock: Block requests if organization status is PENDING_APPROVAL or SUSPENDED (unless caller is SUPERADMIN)
-    if (organization.status === 'PENDING_APPROVAL' || organization.status === 'SUSPENDED') {
-      if (!isSuperadmin) {
-        if (organization.status === 'PENDING_APPROVAL') {
-          return res.status(403).json({
-            message: 'Forbidden. This workspace is currently awaiting administrative approval.'
-          });
-        } else {
-          return res.status(402).json({
-            message: 'Payment Required. This workspace has been suspended.'
-          });
-        }
+    // 1. Try resolving via subdomain
+    if (subdomain) {
+      organization = await prisma.tenant.findUnique({
+        where: { subdomain },
+        include: { tenantSettings: true },
+      });
+    }
+
+    // 2. Try resolving via explicit header
+    if (!organization) {
+      const tenantIdHeader = req.headers['x-tenant-id'];
+      if (tenantIdHeader) {
+        organization = await prisma.tenant.findUnique({
+          where: { id: tenantIdHeader },
+          include: { tenantSettings: true },
+        });
       }
+    }
+
+    // 3. Try resolving via JWT token tenant context fallback (essential for local API testing without subdomain/custom headers)
+    if (!organization && tokenTenantId) {
+      organization = await prisma.tenant.findUnique({
+        where: { id: tokenTenantId },
+        include: { tenantSettings: true },
+      });
+    }
+
+    // 4. Fallback to first organization in database (or create default)
+    if (!organization) {
+      organization = await prisma.tenant.findFirst({
+        include: { tenantSettings: true },
+      });
+
+    if (!organization) {
+      organization = await prisma.tenant.create({
+        data: {
+          name: 'Default Organization',
+          subdomain: 'default',
+          status: 'ACTIVE',
+          tenantSettings: {
+            create: {
+              brand_color_hex: '#6366F1',
+              timezone: 'UTC',
+            },
+          },
+          tenantCredits: {
+            create: {
+              monthly_credit_limit: 1000.00,
+              credits_consumed: 0.00,
+            },
+          },
+        },
+        include: { tenantSettings: true },
+      });
+      logger.info('Created default organization and settings for initial setup.');
+    }
+
+    // Bypass list — paths that must never be blocked regardless of tenant status
+    const pathLower = (req.path || '').toLowerCase();
+    const isBypassedRoute =
+      pathLower.endsWith('/auth/register') ||
+      pathLower.endsWith('/auth/login') ||
+      pathLower.endsWith('/organizations') ||
+      pathLower.includes('/reports/verify/') ||
+      pathLower.includes('/programs/stats') ||
+      pathLower.includes('/programs/categories') ||
+      pathLower.includes('/programs/featured') ||
+      pathLower.includes('/programs/public') ||
+      pathLower.includes('/programs/apply') ||
+      pathLower.includes('/students/') ||
+      pathLower.includes('/applications') ||
+      pathLower.includes('/organizations/public') ||
+      (pathLower.includes('/organizations/') && pathLower.includes('/profile')) ||
+      pathLower.includes('/invites/verify/') ||
+      pathLower.includes('/invites/accept') ||
+      pathLower.includes('/verify/');
+
+    // Global Tenant Lock: Block requests if organization is SUSPENDED (unless superadmin or bypassed route)
+    if (!isBypassedRoute && !isSuperadmin && organization && organization.status === 'SUSPENDED') {
+      logger.warn(`Workspace block: Path ${pathLower} is suspended (Status: ${organization.status})`);
+      return res.status(403).json({
+        message: `Forbidden. This workspace has been suspended by the administrator.`
+      });
     }
 
     // Attach useful tenant data to the request for downstream handlers

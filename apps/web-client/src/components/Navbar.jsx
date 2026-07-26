@@ -1,4 +1,4 @@
-import React, { useContext } from 'react'
+import { useContext } from 'react'
 import { AuthContext } from '../context/AuthContext'
 import { LogOut, GraduationCap } from 'lucide-react'
 
@@ -8,34 +8,34 @@ const Navbar = () => {
   if (!user) return null
 
   return (
-    <nav className="fixed top-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 z-50 px-6 flex items-center justify-between">
+    <nav className="fixed top-0 left-0 right-0 h-16 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/80 z-50 px-6 flex items-center justify-between">
       {/* Brand */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
+        <div className="w-10 h-10 rounded-xl bg-fuchsia-600 flex items-center justify-center text-white shadow-lg shadow-fuchsia-600/30">
           <GraduationCap size={22} />
         </div>
-        <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
+        <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-fuchsia-400 to-pink-400 bg-clip-text text-transparent">
           Softgrow Intern Hub
         </span>
       </div>
 
       {/* Profile & Logout */}
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-3 bg-slate-800/60 pl-3 pr-4 py-1.5 rounded-full border border-slate-700/50">
-          <div className="w-7 h-7 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">
+        <div className="flex items-center gap-3 bg-zinc-900/60 pl-3 pr-4 py-1.5 rounded-full border border-zinc-850">
+          <div className="w-7 h-7 rounded-full bg-fuchsia-500/20 text-fuchsia-400 flex items-center justify-center font-bold text-sm">
             {user.name.charAt(0).toUpperCase()}
           </div>
           <div className="text-sm">
-            <span className="font-medium text-slate-200 block max-w-[120px] truncate leading-tight">
+            <span className="font-medium text-zinc-200 block max-w-[120px] truncate leading-tight">
               {user.name}
             </span>
-            <span className="block text-[11px] text-indigo-400 font-semibold truncate max-w-[120px] leading-tight">
+            <span className="block text-[11px] text-fuchsia-400 font-semibold truncate max-w-[120px] leading-tight">
               {user.tenant_name || 'No Organization'}
             </span>
             <span className={`inline-block text-[10px] uppercase font-bold tracking-wider leading-none mt-0.5 ${
               user.role === 'mentor' || user.role === 'admin'
                 ? 'text-amber-400'
-                : 'text-indigo-400'
+                : 'text-fuchsia-400'
             }`}>
               {user.role} {user.domain ? `| ${user.domain}` : ''}
             </span>
@@ -44,7 +44,7 @@ const Navbar = () => {
 
         <button
           onClick={logout}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-950 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition-all text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-950 text-zinc-300 hover:text-white rounded-xl border border-zinc-800 transition-all text-sm font-medium cursor-pointer"
         >
           <LogOut size={16} />
           <span className="hidden sm:inline">Logout</span>

@@ -1,548 +1,585 @@
-import React, { useState, useEffect, useContext } from 'react'
+// MentorDashboard.jsx — Nextern Design System v2
+import { useState, useEffect, useContext, useRef, useCallback } from 'react'
 import { AuthContext } from '../context/AuthContext'
-import Navbar from '../components/Navbar'
-import Sidebar from '../components/Sidebar'
-import { Users, BarChart3, Inbox, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import DashboardLayout from '../components/DashboardLayout'
+import {
+  Card, CardHeader, CardBody, StatCard, Badge, StatusBadge, Button,
+  Modal, EmptyState, SkeletonCard, Tabs, PageHeader, Progress, Avatar
+} from '../components/ui'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { io } from 'socket.io-client'
+import {
+  LayoutDashboard, Users, CheckSquare, ClipboardList, BarChart2, MessageSquare,
+  Plus, Send, Check, RefreshCw, FileText
+} from 'lucide-react'
+
+const EVAL_FIELDS = [
+  { key: 'communication',   label: 'Communication' },
+  { key: 'technical',       label: 'Technical Skills' },
+  { key: 'teamwork',        label: 'Teamwork' },
+  { key: 'initiative',      label: 'Initiative' },
+  { key: 'punctuality',     label: 'Punctuality' },
+  { key: 'overall',         label: 'Overall' },
+]
 
 const MentorDashboard = () => {
-  const { authAxios } = useContext(AuthContext)
-  const [activeTab, setActiveTab] = useState('insights')
-  
-  // States
+  const { authAxios, user, token } = useContext(AuthContext)
+  const [activeTab, setActiveTab] = useState('overview')
+  const [loading, setLoading]     = useState(true)
+
+  const [interns, setInterns]         = useState([])
+  const [tasks, setTasks]             = useState([])
   const [submissions, setSubmissions] = useState([])
-  const [tasks, setTasks] = useState([])
-  const [loading, setLoading] = useState(true)
-  
-  // Accordion for Task Creation
-  const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
-  
-  // Task Creation Form State
-  const [taskTitle, setTaskTitle] = useState('')
-  const [taskDesc, setTaskDesc] = useState('')
-  const [taskDeadline, setTaskDeadline] = useState('')
-  
-  const [taskError, setTaskError] = useState('')
-  const [taskSuccess, setTaskSuccess] = useState('')
-  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [evaluations, setEvaluations] = useState([])
 
-  // Grading Form State (Active Submission to Grade)
-  const [activeGradingSub, setActiveGradingSub] = useState(null)
-  const [gradeStatus, setGradeStatus] = useState('approved')
-  const [gradeValue, setGradeValue] = useState('')
-  const [gradeFeedback, setGradeFeedback] = useState('')
-  
-  const [gradeError, setGradeError] = useState('')
-  const [gradeSuccess, setGradeSuccess] = useState('')
-  const [isSubmittingGrade, setIsSubmittingGrade] = useState(false)
+  // Task modal
+  const [taskModal, setTaskModal] = useState(false)
+  const [taskForm, setTaskForm]   = useState({ title: '', description: '', deadline: '', priority: 'MEDIUM', points: 100 })
+  const [savingTask, setSavingTask] = useState(false)
 
-  const fetchData = async () => {
+  // Eval modal
+  const [evalModal, setEvalModal] = useState(false)
+  const [evalTarget, setEvalTarget] = useState(null)
+  const [evalForm, setEvalForm]   = useState({ type: 'WEEKLY', communication: 8, technical: 8, teamwork: 8, initiative: 8, punctuality: 8, overall: 8, feedback: '' })
+  const [savingEval, setSavingEval] = useState(false)
+
+  // Grade modal
+  const [gradeModal, setGradeModal]   = useState(false)
+  const [gradeSub, setGradeSub]       = useState(null)
+  const [gradeForm, setGradeForm]     = useState({ status: 'approved', grade: 'A', score: 100, feedback: '' })
+  const [savingGrade, setSavingGrade] = useState(false)
+
+  // Chat
+  const [messages, setMessages]       = useState([])
+  const [chatMsg, setChatMsg]         = useState('')
+  const socketRef = useRef(null)
+
+  const fetchAll = useCallback(async () => {
+    await Promise.resolve() // yield to avoid synchronous setState inside useEffect warning
+    setLoading(true)
     try {
-      setLoading(true)
-      const subRes = await authAxios.get('/submissions')
-      const tasksRes = await authAxios.get('/tasks')
-      setSubmissions(subRes.data.submissions || [])
-      setTasks(tasksRes.data.tasks || [])
-    } catch (err) {
-      console.error('Error loading mentor dashboard details:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
+      const [iRes, tRes, sRes, eRes] = await Promise.all([
+        authAxios.get('/users/interns').catch(() => ({ data: { interns: [] } })),
+        authAxios.get('/tasks').catch(() => ({ data: { tasks: [] } })),
+        authAxios.get('/submissions').catch(() => ({ data: { submissions: [] } })),
+        authAxios.get('/evaluations').catch(() => ({ data: { evaluations: [] } })),
+      ])
+      setInterns(iRes.data?.interns || [])
+      setTasks(tRes.data?.tasks || [])
+      setSubmissions(sRes.data?.submissions || [])
+      setEvaluations(eRes.data?.evaluations || [])
+    } finally { setLoading(false) }
+  }, [authAxios])
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    fetchAll()
+  }, [fetchAll])
 
-  const handleCreateTask = async (e) => {
-    e.preventDefault()
-    setTaskError('')
-    setTaskSuccess('')
-    setIsCreatingTask(true)
+  useEffect(() => {
+    if (!token || !user?.tenantId) return
+    const socket = io('http://localhost:5001', { auth: { token } })
+    socketRef.current = socket
+    socket.on('message', msg => setMessages(prev => [...prev, msg]))
+    socket.on('chat_history', hist => setMessages(hist))
+    socket.emit('join_room', { room: user.tenantId })
+    return () => socket.disconnect()
+  }, [token, user?.tenantId])
 
+  const createTask = async () => {
+    setSavingTask(true)
     try {
-      await authAxios.post('/tasks', {
-        title: taskTitle,
-        description: taskDesc,
-        deadline: taskDeadline || null
-      })
-      setTaskSuccess('Task assignment created successfully!')
-      setTaskTitle('')
-      setTaskDesc('')
-      setTaskDeadline('')
-      setIsTaskFormOpen(false)
-      await fetchData()
-    } catch (err) {
-      console.error(err)
-      setTaskError(err.response?.data?.message || 'Failed to create task.')
-    } finally {
-      setIsCreatingTask(false)
-    }
+      await authAxios.post('/tasks', taskForm)
+      setTaskModal(false)
+      setTaskForm({ title: '', description: '', deadline: '', priority: 'MEDIUM', points: 100 })
+      fetchAll()
+    } catch (err) { alert(err.response?.data?.message || 'Failed to create task') }
+    finally { setSavingTask(false) }
   }
 
-  const handleGradeSubmission = async (e) => {
-    e.preventDefault()
-    setGradeError('')
-    setGradeSuccess('')
-    setIsSubmittingGrade(true)
-
+  const submitEval = async () => {
+    setSavingEval(true)
     try {
-      await authAxios.put(`/submissions/grade/${activeGradingSub.id}`, {
-        status: gradeStatus,
-        grade: gradeValue,
-        feedback: gradeFeedback
-      })
-      setGradeSuccess('Submission evaluation updated!')
-      setGradeValue('')
-      setGradeFeedback('')
-      
-      await fetchData()
-      
-      setTimeout(() => {
-        setActiveGradingSub(null)
-        setGradeSuccess('')
-      }, 1500)
-    } catch (err) {
-      console.error(err)
-      setGradeError(err.response?.data?.message || 'Failed to submit grade evaluation.')
-    } finally {
-      setIsSubmittingGrade(false)
-    }
+      await authAxios.post('/evaluations', { ...evalForm, internId: evalTarget?.id })
+      setEvalModal(false)
+      fetchAll()
+    } catch (err) { alert(err.response?.data?.message || 'Failed to submit evaluation') }
+    finally { setSavingEval(false) }
   }
 
-  // Analytics Math
-  const totalSubmissions = submissions.length
-  const pendingCount = submissions.filter(s => s.status === 'pending').length
-  const approvedCount = submissions.filter(s => s.status === 'approved').length
-  const revisionCount = submissions.filter(s => s.status === 'needs_revision').length
-  const successRate = totalSubmissions > 0 ? Math.round((approvedCount / totalSubmissions) * 100) : 0
-  
-  // Extract unique interns
-  const uniqueInterns = Array.from(new Set(submissions.map(s => s.intern_name))).filter(Boolean)
-  const totalInterns = uniqueInterns.length
+  const gradeSubmission = async () => {
+    setSavingGrade(true)
+    try {
+      await authAxios.put(`/submissions/${gradeSub.id}/grade`, gradeForm)
+      setGradeModal(false)
+      fetchAll()
+    } catch (err) { alert(err.response?.data?.message || 'Failed to grade submission') }
+    finally { setSavingGrade(false) }
+  }
+
+  const sendMessage = () => {
+    if (!chatMsg.trim()) return
+    socketRef.current?.emit('send_message', { room: user?.tenantId, message: chatMsg, sender: user?.name })
+    setChatMsg('')
+  }
+
+  const pendingSubs = submissions.filter(s => s.status === 'pending' || s.status === 'PENDING')
+  const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length
+
+  // Chart data: evaluation averages per intern
+  const evalChartData = interns.slice(0, 6).map(intern => {
+    const evalItems = evaluations.filter(e => e.internId === intern.id)
+    const avg = EVAL_FIELDS.reduce((acc, f) => {
+      const vals = evalItems.map(e => e[f.key]).filter(v => v !== undefined)
+      return acc + (vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : 0)
+    }, 0) / EVAL_FIELDS.length
+    return { name: intern.name?.split(' ')[0] || 'Intern', avg: +avg.toFixed(1) }
+  })
+
+  const TABS = [
+    { key: 'overview',    label: 'Overview',     icon: LayoutDashboard },
+    { key: 'interns',     label: 'My Interns',   icon: Users, count: interns.length },
+    { key: 'tasks',       label: 'Tasks',         icon: CheckSquare, count: tasks.length },
+    { key: 'submissions', label: 'Submissions',   icon: FileText, count: pendingSubs.length },
+    { key: 'evaluations', label: 'Evaluations',   icon: ClipboardList },
+    { key: 'analytics',   label: 'Analytics',     icon: BarChart2 },
+    { key: 'chat',        label: 'Chat',           icon: MessageSquare },
+  ]
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <Navbar />
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      <PageHeader
+        title="Mentor Dashboard"
+        subtitle={`Welcome, ${user?.name?.split(' ')[0] || 'Mentor'}`}
+        actions={
+          <>
+            <Button variant="ghost" icon={RefreshCw} onClick={fetchAll} size="sm">Refresh</Button>
+            <Button variant="primary" icon={Plus} onClick={() => setTaskModal(true)}>New Task</Button>
+          </>
+        }
+      />
 
-      <main className="md:pl-64 pt-16 min-h-screen">
-        <div className="p-6 max-w-6xl mx-auto space-y-8">
-          
-          {/* Header */}
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-slate-100 to-slate-400 bg-clip-text text-transparent">
-              Mentor Portal
-            </h1>
-            <p className="text-slate-400 text-sm mt-1">Review student work, manage tasks, and inspect analytics.</p>
-          </div>
+      <div style={{ marginBottom: 24 }}>
+        <Tabs tabs={TABS} activeTab={activeTab} onChange={setActiveTab} />
+      </div>
 
-          {loading ? (
-            <div className="flex justify-center items-center py-20">
-              <div className="w-10 h-10 border-4 border-slate-800 border-t-indigo-500 rounded-full animate-spin"></div>
-            </div>
-          ) : (
-            <>
-              {activeTab === 'insights' && (
-                <div className="space-y-8 animate-in fade-in duration-200">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <div className="glass-panel p-6 rounded-2xl flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-                        <Users size={24} />
-                      </div>
-                      <div>
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Registered Interns</span>
-                        <span className="text-2xl font-bold text-slate-100">{totalInterns}</span>
-                      </div>
-                    </div>
+      {loading ? (
+        <div className="nx-grid-stats">{[...Array(4)].map((_,i) => <SkeletonCard key={i} />)}</div>
+      ) : (
+        <>
+          {/* ── OVERVIEW ─────────────────────────────────── */}
+          {activeTab === 'overview' && (
+            <div className="nx-stack-lg">
+              <div className="nx-grid-stats">
+                <StatCard label="My Interns" value={interns.length} icon={Users} iconBg="var(--color-primary-light)" iconColor="var(--color-primary)" />
+                <StatCard label="Active Tasks" value={tasks.length} icon={CheckSquare} iconBg="var(--color-warning-light)" iconColor="var(--color-warning)" />
+                <StatCard label="Pending Reviews" value={pendingSubs.length} icon={FileText} iconBg="var(--color-danger-light)" iconColor="var(--color-danger)" />
+                <StatCard label="Evaluations Done" value={evaluations.length} icon={ClipboardList} iconBg="var(--color-success-light)" iconColor="var(--color-success)" />
+              </div>
 
-                    <div className="glass-panel p-6 rounded-2xl flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                        <BarChart3 size={24} />
-                      </div>
-                      <div>
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Approval Success Rate</span>
-                        <span className="text-2xl font-bold text-slate-100">{successRate}%</span>
-                      </div>
-                    </div>
-
-                    <div className="glass-panel p-6 rounded-2xl flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
-                        <Inbox size={24} />
-                      </div>
-                      <div>
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Pending Audits</span>
-                        <span className="text-2xl font-bold text-slate-100">{pendingCount}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="glass-panel p-6 rounded-2xl space-y-6">
-                    <h2 className="text-lg font-bold text-slate-100">Submissions Breakdown</h2>
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between text-xs text-slate-400 mb-1">
-                          <span>Approved Submissions ({approvedCount})</span>
-                          <span>{totalSubmissions > 0 ? Math.round((approvedCount / totalSubmissions) * 100) : 0}%</span>
-                        </div>
-                        <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${totalSubmissions > 0 ? (approvedCount / totalSubmissions) * 100 : 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs text-slate-400 mb-1">
-                          <span>Pending Review ({pendingCount})</span>
-                          <span>{totalSubmissions > 0 ? Math.round((pendingCount / totalSubmissions) * 100) : 0}%</span>
-                        </div>
-                        <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-amber-500 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${totalSubmissions > 0 ? (pendingCount / totalSubmissions) * 100 : 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs text-slate-400 mb-1">
-                          <span>Needs Revision ({revisionCount})</span>
-                          <span>{totalSubmissions > 0 ? Math.round((revisionCount / totalSubmissions) * 100) : 0}%</span>
-                        </div>
-                        <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-red-500 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${totalSubmissions > 0 ? (revisionCount / totalSubmissions) * 100 : 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'tasks_mgr' && (
-                <div className="space-y-6 animate-in fade-in duration-200">
-                  <div className="glass-panel rounded-2xl overflow-hidden">
-                    <button
-                      onClick={() => setIsTaskFormOpen(!isTaskFormOpen)}
-                      className="w-full p-5 flex items-center justify-between font-bold text-slate-200 hover:bg-slate-800/30 transition-colors cursor-pointer"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Plus size={20} className="text-indigo-400" />
-                        Create New Task Assignment
-                      </span>
-                      {isTaskFormOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                    </button>
-
-                    {isTaskFormOpen && (
-                      <div className="p-6 border-t border-slate-800 bg-slate-900/30 space-y-4">
-                        {taskError && (
-                          <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl">
-                            {taskError}
-                          </div>
-                        )}
-                        {taskSuccess && (
-                          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl">
-                            {taskSuccess}
-                          </div>
-                        )}
-
-                        <form onSubmit={handleCreateTask} className="space-y-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs text-slate-300 font-semibold uppercase tracking-wider mb-2">
-                                Task Title
-                              </label>
-                              <input
-                                type="text"
-                                required
-                                value={taskTitle}
-                                onChange={(e) => setTaskTitle(e.target.value)}
-                                placeholder="E.g. Build Redux State Controller"
-                                className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-500 text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-slate-300 font-semibold uppercase tracking-wider mb-2">
-                                Deadline (Optional)
-                              </label>
-                              <input
-                                type="datetime-local"
-                                value={taskDeadline}
-                                onChange={(e) => setTaskDeadline(e.target.value)}
-                                className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors text-slate-200 text-sm"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs text-slate-300 font-semibold uppercase tracking-wider mb-2">
-                              Task Description
-                            </label>
-                            <textarea
-                              rows={4}
-                              value={taskDesc}
-                              onChange={(e) => setTaskDesc(e.target.value)}
-                              placeholder="Outline task goals, deliverables, and resource paths here..."
-                              className="w-full px-4 py-3 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-500 text-sm"
-                            />
-                          </div>
-
-                          <button
-                            type="submit"
-                            disabled={isCreatingTask}
-                            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
-                          >
-                            {isCreatingTask ? (
-                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            ) : (
-                              'Publish Assignment'
-                            )}
-                          </button>
-                        </form>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="glass-panel p-6 rounded-2xl space-y-4">
-                    <h2 className="text-lg font-bold text-slate-100">Currently Published Tasks</h2>
-                    {tasks.length === 0 ? (
-                      <p className="text-slate-400 text-sm">No tasks created yet.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {tasks.map(task => (
-                          <div key={task.id} className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl space-y-2">
-                            <h3 className="font-bold text-slate-200 text-sm">{task.title}</h3>
-                            <p className="text-xs text-slate-400 line-clamp-2">{task.description}</p>
-                            <div className="flex justify-between items-center text-[10px] text-slate-500 pt-2 border-t border-slate-800">
-                              <span>Created at: {new Date(task.created_at).toLocaleDateString()}</span>
-                              <span>Deadline: {task.deadline ? new Date(task.deadline).toLocaleDateString() : 'None'}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'submissions' && (
-                <div className="space-y-6 animate-in fade-in duration-200">
-                  <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800/80">
-                    <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-900/20">
-                      <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                        <Inbox size={20} className="text-indigo-400" />
-                        Submissions Evaluation Queue
-                      </h2>
-                    </div>
-
-                    {submissions.length === 0 ? (
-                      <div className="p-8 text-center text-slate-400 text-sm">
-                        No submissions registered in the system yet.
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-slate-300">
-                          <thead className="text-xs text-slate-400 uppercase tracking-wider bg-slate-900/40 border-b border-slate-800/85">
-                            <tr>
-                              <th className="px-6 py-4">Intern Name</th>
-                              <th className="px-6 py-4">Task Assignment</th>
-                              <th className="px-6 py-4">Submitted Date</th>
-                              <th className="px-6 py-4">Status</th>
-                              <th className="px-6 py-4">Grade</th>
-                              <th className="px-6 py-4 text-right">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800">
-                            {submissions.map((sub) => (
-                              <tr key={sub.id} className="hover:bg-slate-800/20 transition-colors">
-                                <td className="px-6 py-4 font-semibold text-slate-200">{sub.intern_name}</td>
-                                <td className="px-6 py-4">{sub.task_title}</td>
-                                <td className="px-6 py-4 text-xs text-slate-400">
-                                  {new Date(sub.submitted_at).toLocaleString()}
-                                </td>
-                                <td className="px-6 py-4">
-                                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
-                                     sub.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                                     sub.status === 'needs_revision' ? 'bg-red-500/10 text-red-400' :
-                                     sub.status === 'reviewed' ? 'bg-indigo-500/10 text-indigo-400' :
-                                     'bg-amber-500/10 text-amber-400'
-                                   }`}>
-                                     {sub.status === 'reviewed' ? 'AI Reviewed' : sub.status.replace('_', ' ')}
-                                   </span>
-                                </td>
-                                <td className="px-6 py-4 font-mono font-bold text-slate-200">{sub.grade || '—'}</td>
-                                <td className="px-6 py-4 text-right">
-                                  <button
-                                    onClick={() => setActiveGradingSub(sub)}
-                                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-200 hover:text-white rounded-lg text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
-                                  >
-                                    Evaluate
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Evaluation Modal */}
-          {activeGradingSub && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              <div 
-                className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
-                onClick={() => setActiveGradingSub(null)}
-              ></div>
-
-              <div className="glass-panel w-full max-w-lg rounded-2xl relative z-10 p-6 space-y-5">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-200">Evaluate Submission</h3>
-                  <p className="text-xs text-slate-400 mt-1">Submitted by {activeGradingSub.intern_name} for "{activeGradingSub.task_title}"</p>
-                </div>
-
-                <div className="bg-slate-900/60 p-4 border border-slate-800 rounded-xl space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Submission text</span>
-                  <p className="text-xs text-slate-300 italic whitespace-pre-wrap">"{activeGradingSub.submission_text || 'No description provided'}"</p>
-                  
-                  {(activeGradingSub.file_path || activeGradingSub.github_link) && (
-                    <div className="flex gap-4 pt-2 border-t border-slate-800/80 mt-2 text-xs">
-                      {activeGradingSub.file_path && (
-                        <span className="text-slate-400">File: <strong className="text-slate-300">{activeGradingSub.file_path}</strong></span>
-                      )}
-                      {activeGradingSub.github_link && (
-                        <a 
-                          href={activeGradingSub.github_link} 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
-                        >
-                          View GitHub Link
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {activeGradingSub.status === 'reviewed' && (
-                  <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-2">
-                    <span className="text-[11px] uppercase font-bold text-indigo-400 block">
-                      🤖 AI Auto-Review Suggestion:
-                    </span>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-300">Suggested Score:</span>
-                      <span className="text-indigo-300 font-bold bg-indigo-500/10 px-2 py-0.5 rounded">
-                        {activeGradingSub.score !== null ? `${activeGradingSub.score}/100` : 'No score'}
-                      </span>
-                    </div>
-                    {activeGradingSub.feedback && (
-                      <p className="text-xs text-indigo-200/90 italic">
-                        "{activeGradingSub.feedback}"
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGradeValue(`A (${activeGradingSub.score}/100)`)
-                        setGradeFeedback(activeGradingSub.feedback || '')
-                      }}
-                      className="w-full mt-2 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:text-white rounded-lg text-xs font-medium transition-all cursor-pointer"
-                    >
-                      Use AI Suggestion
-                    </button>
-                  </div>
-                )}
-
-                {gradeError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl">
-                    {gradeError}
-                  </div>
-                )}
-                {gradeSuccess && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl">
-                    {gradeSuccess}
-                  </div>
-                )}
-
-                <form onSubmit={handleGradeSubmission} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs text-slate-300 font-semibold uppercase tracking-wider mb-2">
-                        Resolution Status
-                      </label>
-                      <select
-                        value={gradeStatus}
-                        onChange={(e) => setGradeStatus(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors text-sm appearance-none cursor-pointer"
-                      >
-                        <option value="approved">Approve Submission</option>
-                        <option value="needs_revision">Request Revision</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs text-slate-300 font-semibold uppercase tracking-wider mb-2">
-                        Evaluation Grade
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="E.g. A+, Pass, 95/100"
-                        value={gradeValue}
-                        onChange={(e) => setGradeValue(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-500 text-sm"
-                      />
-                    </div>
-                  </div>
-
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                {/* Interns quick view */}
+                <Card>
+                  <CardHeader>
+                    <h3 style={{ fontSize: 14, fontWeight: 600 }}>My Interns</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('interns')}>View all</Button>
+                  </CardHeader>
                   <div>
-                    <label className="block text-xs text-slate-300 font-semibold uppercase tracking-wider mb-2">
-                      Feedback / Revision Directions
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={gradeFeedback}
-                      onChange={(e) => setGradeFeedback(e.target.value)}
-                      placeholder="Input feedback comments or revision instructions..."
-                      className="w-full px-4 py-2 bg-slate-900 border border-slate-700/60 text-slate-100 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-500 text-sm"
-                    />
+                    {interns.slice(0, 5).map((intern, i) => (
+                      <div key={intern.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: i < 4 ? '1px solid var(--border-subtle)' : 'none' }}>
+                        <Avatar name={intern.name} size="sm" />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{intern.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{intern.program?.title || '—'}</div>
+                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => { setEvalTarget(intern); setEvalModal(true) }}>Evaluate</Button>
+                      </div>
+                    ))}
+                    {interns.length === 0 && <EmptyState icon={Users} title="No interns assigned" />}
                   </div>
+                </Card>
 
-                  <div className="flex gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveGradingSub(null)}
-                      className="flex-1 py-2.5 border border-slate-700 text-slate-300 hover:bg-slate-800 rounded-xl text-sm font-medium transition-colors cursor-pointer"
-                    >
-                      Dismiss
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmittingGrade}
-                      className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
-                    >
-                      {isSubmittingGrade ? (
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      ) : (
-                        'Save Evaluation'
-                      )}
-                    </button>
+                {/* Pending submissions */}
+                <Card>
+                  <CardHeader>
+                    <h3 style={{ fontSize: 14, fontWeight: 600 }}>Pending Reviews</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('submissions')}>View all</Button>
+                  </CardHeader>
+                  <div>
+                    {pendingSubs.slice(0, 5).map((sub, i) => (
+                      <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: i < 4 ? '1px solid var(--border-subtle)' : 'none' }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--color-warning-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <FileText size={14} color="var(--color-warning)" />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub.task?.title || 'Submission'}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>By {sub.intern?.name || '—'}</div>
+                        </div>
+                        <Button size="sm" variant="primary" onClick={() => { setGradeSub(sub); setGradeModal(true) }}>Grade</Button>
+                      </div>
+                    ))}
+                    {pendingSubs.length === 0 && <EmptyState icon={FileText} title="No pending reviews" description="All submissions have been graded." />}
                   </div>
-                </form>
+                </Card>
               </div>
             </div>
           )}
 
+          {/* ── INTERNS ───────────────────────────────────── */}
+          {activeTab === 'interns' && (
+            <div>
+              {interns.length === 0 ? (
+                <Card><CardBody><EmptyState icon={Users} title="No interns assigned" description="Interns will appear here once assigned to your programs." /></CardBody></Card>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                  {interns.map(intern => {
+                    const internEvals = evaluations.filter(e => e.internId === intern.id)
+                    const internTasks = tasks.filter(t => t.assignedToId === intern.id)
+                    const completed = internTasks.filter(t => t.status === 'COMPLETED').length
+                    return (
+                      <Card key={intern.id}>
+                        <CardBody>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                            <Avatar name={intern.name} size="lg" />
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{intern.name}</div>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{intern.email}</div>
+                              <StatusBadge status={intern.status || 'ACTIVE'} />
+                            </div>
+                          </div>
+
+                          {internTasks.length > 0 && (
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Task progress</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{completed}/{internTasks.length}</span>
+                              </div>
+                              <Progress value={completed} max={internTasks.length} />
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <Button size="sm" variant="primary" style={{ flex: 1 }} onClick={() => { setEvalTarget(intern); setEvalModal(true) }}>
+                              Evaluate
+                            </Button>
+                          </div>
+
+                          {internEvals.length > 0 && (
+                            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                              {internEvals.length} evaluation{internEvals.length > 1 ? 's' : ''} submitted
+                            </div>
+                          )}
+                        </CardBody>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── TASKS ────────────────────────────────────── */}
+          {activeTab === 'tasks' && (
+            <div className="nx-stack-md">
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="primary" icon={Plus} onClick={() => setTaskModal(true)}>Create Task</Button>
+              </div>
+              {tasks.length === 0 ? (
+                <Card><CardBody><EmptyState icon={CheckSquare} title="No tasks created" description="Create tasks to assign to your interns."
+                  action={<Button variant="primary" icon={Plus} onClick={() => setTaskModal(true)}>Create Task</Button>} /></CardBody></Card>
+              ) : (
+                <Card>
+                  <div className="nx-table-wrapper" style={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}>
+                    <table className="nx-table">
+                      <thead>
+                        <tr><th>Task</th><th>Priority</th><th>Points</th><th>Status</th><th>Deadline</th></tr>
+                      </thead>
+                      <tbody>
+                        {tasks.map(t => (
+                          <tr key={t.id}>
+                            <td className="nx-td-primary">
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
+                              {t.description && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{t.description.slice(0, 60)}{t.description.length > 60 ? '…' : ''}</div>}
+                            </td>
+                            <td><Badge variant={t.priority === 'HIGH' ? 'red' : t.priority === 'MEDIUM' ? 'amber' : 'gray'}>{t.priority}</Badge></td>
+                            <td>{t.points || 100}</td>
+                            <td><StatusBadge status={t.status || 'TODO'} /></td>
+                            <td>{t.deadline ? new Date(t.deadline).toLocaleDateString() : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* ── SUBMISSIONS ──────────────────────────────── */}
+          {activeTab === 'submissions' && (
+            <div>
+              {submissions.length === 0 ? (
+                <Card><CardBody><EmptyState icon={FileText} title="No submissions yet" /></CardBody></Card>
+              ) : (
+                <Card>
+                  <div className="nx-table-wrapper" style={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}>
+                    <table className="nx-table">
+                      <thead>
+                        <tr><th>Intern</th><th>Task</th><th>Status</th><th>Grade</th><th>Submitted</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {submissions.map(s => (
+                          <tr key={s.id}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Avatar name={s.intern?.name} size="sm" />
+                                <span style={{ fontSize: 13, fontWeight: 500 }}>{s.intern?.name || '—'}</span>
+                              </div>
+                            </td>
+                            <td>{s.task?.title || '—'}</td>
+                            <td><StatusBadge status={s.status || 'PENDING'} /></td>
+                            <td>{s.grade || '—'}</td>
+                            <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</td>
+                            <td>
+                              {(s.status === 'pending' || s.status === 'PENDING') && (
+                                <Button size="sm" variant="primary" onClick={() => { setGradeSub(s); setGradeModal(true) }}>Grade</Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* ── EVALUATIONS ──────────────────────────────── */}
+          {activeTab === 'evaluations' && (
+            <div className="nx-stack-md">
+              {evaluations.length === 0 ? (
+                <Card><CardBody><EmptyState icon={ClipboardList} title="No evaluations submitted" description="Select an intern to submit their evaluation." /></CardBody></Card>
+              ) : (
+                evaluations.map(ev => {
+                  const intern = interns.find(i => i.id === ev.internId)
+                  return (
+                    <Card key={ev.id}>
+                      <CardHeader>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {intern && <Avatar name={intern.name} size="sm" />}
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{intern?.name || 'Intern'}</div>
+                            <Badge variant={ev.type === 'FINAL' ? 'blue' : 'amber'}>{ev.type}</Badge>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(ev.createdAt).toLocaleDateString()}</span>
+                      </CardHeader>
+                      <CardBody>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          {EVAL_FIELDS.map(f => ev[f.key] !== undefined && (
+                            <div key={f.key}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>{f.label}</span>
+                                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{ev[f.key]}/10</span>
+                              </div>
+                              <Progress value={ev[f.key]} max={10} color={ev[f.key]>=7?'var(--color-success)':ev[f.key]>=5?'var(--color-warning)':'var(--color-danger)'} />
+                            </div>
+                          ))}
+                        </div>
+                        {ev.feedback && (
+                          <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--bg-subtle)', borderRadius: 8, fontSize: 13, color: 'var(--text-secondary)', fontStyle: 'italic', borderLeft: '3px solid var(--color-primary)' }}>
+                            "{ev.feedback}"
+                          </div>
+                        )}
+                      </CardBody>
+                    </Card>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* ── ANALYTICS ─────────────────────────────────── */}
+          {activeTab === 'analytics' && (
+            <div className="nx-stack-md">
+              <div className="nx-grid-stats">
+                <StatCard label="Total Interns" value={interns.length} icon={Users} iconBg="var(--color-primary-light)" iconColor="var(--color-primary)" />
+                <StatCard label="Tasks Created" value={tasks.length} icon={CheckSquare} iconBg="var(--color-warning-light)" iconColor="var(--color-warning)" />
+                <StatCard label="Completed Tasks" value={completedTasks} icon={Check} iconBg="var(--color-success-light)" iconColor="var(--color-success)" />
+                <StatCard label="Evaluations" value={evaluations.length} icon={ClipboardList} iconBg="#f3f0ff" iconColor="#7c3aed" />
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 600 }}>Intern Performance Averages</h3>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Average evaluation score per intern (out of 10)</p>
+                  </div>
+                </CardHeader>
+                <CardBody>
+                  {evalChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={evalChartData} barCategoryGap="35%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0,10]} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 8, fontSize: 12 }} />
+                        <Bar dataKey="avg" name="Avg Score" radius={[4,4,0,0]} fill="var(--color-primary)" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <EmptyState icon={BarChart2} title="No evaluation data" description="Submit evaluations to see analytics." />
+                  )}
+                </CardBody>
+              </Card>
+            </div>
+          )}
+
+          {/* ── CHAT ─────────────────────────────────────── */}
+          {activeTab === 'chat' && (
+            <Card style={{ maxWidth: 640, height: '65vh', display: 'flex', flexDirection: 'column' }}>
+              <CardHeader><h3 style={{ fontSize: 14, fontWeight: 600 }}>Team Chat</h3></CardHeader>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {messages.length === 0 && <EmptyState icon={MessageSquare} title="No messages yet" />}
+                {messages.map((m, i) => {
+                  const isMine = m.sender === user?.name
+                  return (
+                    <div key={i} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', gap: 8, alignItems: 'flex-end' }}>
+                      {!isMine && <Avatar name={m.sender} size="sm" />}
+                      <div style={{ maxWidth: '70%' }}>
+                        {!isMine && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, fontWeight: 600 }}>{m.sender}</div>}
+                        <div style={{ padding: '8px 12px', borderRadius: 12, fontSize: 13, background: isMine ? 'var(--color-primary)' : 'var(--bg-subtle)', color: isMine ? 'white' : 'var(--text-primary)', borderBottomRightRadius: isMine ? 4 : 12, borderBottomLeftRadius: isMine ? 12 : 4 }}>
+                          {m.message}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <CardBody compact style={{ borderTop: '1px solid var(--border-default)' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input value={chatMsg} onChange={e => setChatMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Type a message…" className="nx-input" style={{ flex: 1 }} />
+                  <Button variant="primary" icon={Send} onClick={sendMessage} />
+                </div>
+              </CardBody>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* ── TASK MODAL ───────────────────────────────── */}
+      <Modal open={taskModal} onClose={() => setTaskModal(false)} title="Create Task" size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setTaskModal(false)}>Cancel</Button>
+            <Button variant="primary" loading={savingTask} onClick={createTask}>Create Task</Button>
+          </>
+        }
+      >
+        <div className="nx-stack-md">
+          <div className="nx-form-group">
+            <label className="nx-label nx-label-required">Title</label>
+            <input type="text" value={taskForm.title} onChange={e => setTaskForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Build login page" className="nx-input" />
+          </div>
+          <div className="nx-form-group">
+            <label className="nx-label">Description</label>
+            <textarea value={taskForm.description} onChange={e => setTaskForm(f=>({...f,description:e.target.value}))} placeholder="Task details and requirements…" className="nx-textarea" rows={3} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="nx-form-group">
+              <label className="nx-label">Priority</label>
+              <select value={taskForm.priority} onChange={e => setTaskForm(f=>({...f,priority:e.target.value}))} className="nx-select">
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+              </select>
+            </div>
+            <div className="nx-form-group">
+              <label className="nx-label">Points</label>
+              <input type="number" value={taskForm.points} onChange={e => setTaskForm(f=>({...f,points:+e.target.value}))} className="nx-input" min={1} max={1000} />
+            </div>
+          </div>
+          <div className="nx-form-group">
+            <label className="nx-label">Deadline</label>
+            <input type="date" value={taskForm.deadline} onChange={e => setTaskForm(f=>({...f,deadline:e.target.value}))} className="nx-input" />
+          </div>
         </div>
-      </main>
-    </div>
+      </Modal>
+
+      {/* ── EVAL MODAL ───────────────────────────────── */}
+      <Modal open={evalModal} onClose={() => setEvalModal(false)} title={`Evaluate: ${evalTarget?.name || ''}`} size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEvalModal(false)}>Cancel</Button>
+            <Button variant="primary" loading={savingEval} onClick={submitEval}>Submit Evaluation</Button>
+          </>
+        }
+      >
+        <div className="nx-stack-md">
+          <div className="nx-form-group">
+            <label className="nx-label">Evaluation Type</label>
+            <select value={evalForm.type} onChange={e => setEvalForm(f=>({...f,type:e.target.value}))} className="nx-select">
+              <option value="WEEKLY">Weekly</option>
+              <option value="MID_TERM">Mid-Term</option>
+              <option value="FINAL">Final</option>
+            </select>
+          </div>
+
+          <div className="nx-grid-2">
+            {EVAL_FIELDS.map(f => (
+              <div key={f.key} className="nx-form-group">
+                <label className="nx-label">{f.label} ({evalForm[f.key] || 8}/10)</label>
+                <input type="range" min={1} max={10} value={evalForm[f.key] || 8}
+                  onChange={e => setEvalForm(p => ({ ...p, [f.key]: +e.target.value }))}
+                  style={{ width: '100%', accentColor: 'var(--color-primary)' }} />
+              </div>
+            ))}
+          </div>
+
+          <div className="nx-form-group">
+            <label className="nx-label">Feedback</label>
+            <textarea value={evalForm.feedback} onChange={e => setEvalForm(f=>({...f,feedback:e.target.value}))} placeholder="Provide constructive feedback…" className="nx-textarea" rows={3} />
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── GRADE MODAL ──────────────────────────────── */}
+      <Modal open={gradeModal} onClose={() => setGradeModal(false)} title={`Grade: ${gradeSub?.task?.title || 'Submission'}`} size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setGradeModal(false)}>Cancel</Button>
+            <Button variant="primary" loading={savingGrade} onClick={gradeSubmission}>Submit Grade</Button>
+          </>
+        }
+      >
+        <div className="nx-stack-md">
+          <div className="nx-form-group">
+            <label className="nx-label">Decision</label>
+            <select value={gradeForm.status} onChange={e => setGradeForm(f=>({...f,status:e.target.value}))} className="nx-select">
+              <option value="approved">Approve</option>
+              <option value="needs_revision">Needs Revision</option>
+              <option value="rejected">Reject</option>
+            </select>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="nx-form-group">
+              <label className="nx-label">Letter Grade</label>
+              <select value={gradeForm.grade} onChange={e => setGradeForm(f=>({...f,grade:e.target.value}))} className="nx-select">
+                {['A+','A','A-','B+','B','B-','C+','C','D','F'].map(g => <option key={g}>{g}</option>)}
+              </select>
+            </div>
+            <div className="nx-form-group">
+              <label className="nx-label">Score (/100)</label>
+              <input type="number" value={gradeForm.score} onChange={e => setGradeForm(f=>({...f,score:+e.target.value}))} className="nx-input" min={0} max={100} />
+            </div>
+          </div>
+          <div className="nx-form-group">
+            <label className="nx-label">Feedback</label>
+            <textarea value={gradeForm.feedback} onChange={e => setGradeForm(f=>({...f,feedback:e.target.value}))} placeholder="Feedback for the intern…" className="nx-textarea" rows={3} />
+          </div>
+        </div>
+      </Modal>
+    </DashboardLayout>
   )
 }
 

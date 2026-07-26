@@ -27,20 +27,8 @@ const processor = async (job) => {
   const { submissionId, tenantId, assignmentCode, criteria } = job.data;
   logger.info({ msg: 'Processing AI review job', submissionId, tenantId });
 
-  // 1️⃣ Verify tenant credits
-  const tenantCredits = await prisma.tenantCredits.findUnique({
-    where: { tenant_id: tenantId },
-  });
-  if (!tenantCredits) {
-    const errMsg = `TenantCredits record not found for tenant ${tenantId}`;
-    logger.warn(errMsg);
-    throw new Error(errMsg);
-  }
-  if (tenantCredits.credits_consumed >= tenantCredits.monthly_credit_limit) {
-    const errMsg = `Tenant ${tenantId} has exhausted its monthly AI credits`;
-    logger.warn(errMsg);
-    throw new Error(errMsg);
-  }
+  // AI credits are unlimited under the free version
+  logger.info({ msg: 'Skipping credit check - unlimited free version', tenantId });
 
   // 2️⃣ Simulate network latency
   await wait(3000);

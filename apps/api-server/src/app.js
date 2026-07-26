@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const Sentry = require('@sentry/node');
 const logger = require('./utils/logger');
 
@@ -33,13 +34,12 @@ if (sentryDsn) {
 
 // Global Core Middleware
 app.use(cors());
-app.use(express.json({
-  verify: (req, res, buf, encoding) => {
-    if (req.originalUrl && req.originalUrl.includes('/api/v1/billing/webhook')) {
-      req.rawBody = buf;
-    }
-  }
-}));
+app.use(express.json({ limit: '10mb' }));
+
+// Static file serving for uploads and certificates
+// NOTE: In serverless environments (Vercel) these paths are ephemeral.
+// For production, replace with cloud storage (S3/GCS) URL references.
+app.use('/public', express.static(path.join(__dirname, '..', 'public')))
 
 // Multi-tenant context resolver middleware
 const tenantResolver = require('./middlewares/tenantResolver');
@@ -55,6 +55,21 @@ const submissionRoutes = require('../routes/submissionRoutes');
 const organizationRoutes = require('../routes/organizationRoutes');
 const superadminRoutes = require('../routes/superadminRoutes');
 const billingRoutes = require('../routes/billingRoutes');
+const onboardingRoutes = require('../routes/onboardingRoutes');
+const adminRoutes = require('../routes/adminRoutes');
+const attendanceRoutes = require('../routes/attendanceRoutes');
+const programRoutes = require('../routes/programRoutes');
+const evaluationRoutes = require('../routes/evaluationRoutes');
+const chatRoutes = require('../routes/chatRoutes');
+const notificationRoutes = require('../routes/notificationRoutes');
+const uploadRoutes = require('../routes/uploadRoutes');
+const reportRoutes = require('../routes/reportRoutes');
+const studentRoutes = require('../routes/studentRoutes');
+const inviteRoutes = require('../routes/inviteRoutes');
+const reviewRoutes = require('../routes/reviewRoutes');
+const programController = require('../controllers/programController');
+const { verifyToken } = require('../middleware/authMiddleware');
+
 
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
@@ -63,6 +78,25 @@ app.use('/api/v1/submissions', submissionRoutes);
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/superadmin', superadminRoutes);
 app.use('/api/v1/billing', billingRoutes);
+app.use('/api/v1', onboardingRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/attendance', attendanceRoutes);
+app.use('/api/v1/programs', programRoutes);
+app.use('/api/v1/evaluations', evaluationRoutes);
+app.use('/api/v1/chats', chatRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/uploads', uploadRoutes);
+app.use('/api/v1/reports', reportRoutes);
+app.use('/api/v1/students', studentRoutes);
+app.use('/api/v1/invites', inviteRoutes);
+app.use('/api/v1/reviews', reviewRoutes);
+const userRoutes = require('../routes/userRoutes');
+app.use('/api/v1/users', userRoutes);
+
+const applicationsRouter = express.Router();
+applicationsRouter.post('/', verifyToken, programController.submitApplication);
+app.use('/api/v1/applications', applicationsRouter);
+
 
 const assessmentRoutes = require('./routes/assessmentRoutes');
 const exportRoutes = require('./routes/exportRoutes');
@@ -101,6 +135,7 @@ app.use((err, req, res, next) => {
     meta.sentryEventId = res.sentry;
   }
 
+  console.error('SERVER EXCEPTION DETECTED:', err);
   logger.error('Unhandled server exception captured by global error handler', meta);
 
   res.status(500).json({

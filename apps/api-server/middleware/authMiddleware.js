@@ -33,7 +33,18 @@ const requireRole = (rolesArray) => {
       return res.status(401).json({ message: 'Unauthorized. User context missing.' });
     }
     
-    if (!rolesArray.includes(req.user.role)) {
+    const userRole = (req.user.role || '').toUpperCase();
+    const allowedRoles = rolesArray.map(r => r.toUpperCase());
+    
+    // Check if the user role matches any allowed role, supporting administrative aliases
+    const hasRole = allowedRoles.some(allowedRole => {
+      if (allowedRole === 'ADMIN' || allowedRole === 'ORG_ADMIN') {
+        return userRole === 'ORG_ADMIN' || userRole === 'ADMIN';
+      }
+      return userRole === allowedRole;
+    });
+    
+    if (!hasRole) {
       return res.status(403).json({ message: 'Forbidden. Access denied for this role.' });
     }
     
