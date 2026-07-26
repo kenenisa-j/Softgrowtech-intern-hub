@@ -1,25 +1,11 @@
-const mysql = require('mysql2/promise');
-require('dotenv').config();
+// config/db.js
+// MySQL pool is no longer used — the app uses Prisma with PostgreSQL (Neon).
+// This file is kept as a stub for backward compatibility with any legacy imports.
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+const stub = {
+  query: () => Promise.resolve([[], []]),
+  execute: () => Promise.resolve([[], []]),
+  getConnection: () => Promise.resolve({ release: () => {} }),
+};
 
-// Test connection on startup to verify settings
-pool.getConnection()
-  .then(connection => {
-    console.log('Database connection pool established successfully (Production MySQL).');
-    connection.release();
-  })
-  .catch(err => {
-    console.error('Error connecting to MySQL database:', err.message);
-  });
-
-module.exports = pool;
+module.exports = stub;
