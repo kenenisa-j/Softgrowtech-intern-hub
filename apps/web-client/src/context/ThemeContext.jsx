@@ -6,9 +6,9 @@ const ThemeContext = createContext()
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(() => {
     // If user explicitly chose a theme before, respect it.
-    // Otherwise (or if migrating from the old 'light' default) use 'dark'.
+    // Otherwise default to 'light' (white).
     const saved = localStorage.getItem('nx_theme')
-    return saved || 'dark'
+    return saved || 'light'
   })
 
   useEffect(() => {
