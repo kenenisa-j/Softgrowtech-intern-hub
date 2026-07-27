@@ -50,7 +50,7 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
 };
 app.use(cors(corsOptions));
-app.options('(.*)', cors(corsOptions)); // Handle preflight for all routes
+app.options('/:any*', cors(corsOptions)); // Handle preflight for all routes
 app.use(express.json({ limit: '10mb' }));
 
 // Static file serving for uploads and certificates
