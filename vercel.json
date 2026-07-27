@@ -7,16 +7,12 @@
             "config": {
                 "distDir": "dist"
             }
-        },
-        {
-            "src": "apps/api-server/api/index.js",
-            "use": "@vercel/node"
         }
     ],
     "routes": [
         {
             "src": "/api/(.*)",
-            "dest": "/apps/api-server/api/index.js"
+            "dest": "https://softgrowtech-intern-hub-api-server-nu.vercel.app/api/$1"
         },
         {
             "src": "/((?!api/).*\\.[a-zA-Z0-9]+)",
