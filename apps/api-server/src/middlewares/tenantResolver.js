@@ -90,29 +90,30 @@ async function tenantResolver(req, res, next) {
         include: { tenantSettings: true },
       });
 
-    if (!organization) {
-      organization = await prisma.tenant.create({
-        data: {
-          name: 'Default Organization',
-          subdomain: 'default',
-          status: 'ACTIVE',
-          tenantSettings: {
-            create: {
-              brand_color_hex: '#6366F1',
-              timezone: 'UTC',
+      if (!organization) {
+        organization = await prisma.tenant.create({
+          data: {
+            name: 'Default Organization',
+            subdomain: 'default',
+            status: 'ACTIVE',
+            tenantSettings: {
+              create: {
+                brand_color_hex: '#6366F1',
+                timezone: 'UTC',
+              },
+            },
+            tenantCredits: {
+              create: {
+                monthly_credit_limit: 1000.00,
+                credits_consumed: 0.00,
+              },
             },
           },
-          tenantCredits: {
-            create: {
-              monthly_credit_limit: 1000.00,
-              credits_consumed: 0.00,
-            },
-          },
-        },
-        include: { tenantSettings: true },
-      });
-      logger.info('Created default organization and settings for initial setup.');
-    }
+          include: { tenantSettings: true },
+        });
+        logger.info('Created default organization and settings for initial setup.');
+      }
+    } // ← closes "if (!organization)" fallback block
 
     // Bypass list — paths that must never be blocked regardless of tenant status
     const pathLower = (req.path || '').toLowerCase();
